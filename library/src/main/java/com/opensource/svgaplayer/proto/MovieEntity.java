@@ -2,6 +2,8 @@
 // Source file: svga.proto at 123:1
 package com.opensource.svgaplayer.proto;
 
+import com.opensource.svgaplayer.utils.SVGADecodeBudget;
+
 import com.squareup.wire.FieldEncoding;
 import com.squareup.wire.Message;
 import com.squareup.wire.ProtoAdapter;
@@ -232,24 +234,34 @@ public final class MovieEntity extends Message<MovieEntity, MovieEntity.Builder>
 
     @Override
     public MovieEntity decode(ProtoReader reader) throws IOException {
-      Builder builder = new Builder();
-      long token = reader.beginMessage();
-      for (int tag; (tag = reader.nextTag()) != -1;) {
-        switch (tag) {
-          case 1: builder.version(ProtoAdapter.STRING.decode(reader)); break;
-          case 2: builder.params(MovieParams.ADAPTER.decode(reader)); break;
-          case 3: builder.images.putAll(images.decode(reader)); break;
-          case 4: builder.sprites.add(SpriteEntity.ADAPTER.decode(reader)); break;
-          case 5: builder.audios.add(AudioEntity.ADAPTER.decode(reader)); break;
-          default: {
-            FieldEncoding fieldEncoding = reader.peekFieldEncoding();
-            Object value = fieldEncoding.rawProtoAdapter().decode(reader);
-            builder.addUnknownField(tag, fieldEncoding, value);
+      SVGADecodeBudget.enter();
+      try {
+        Builder builder = new Builder();
+        long token = reader.beginMessage();
+        for (int tag; (tag = reader.nextTag()) != -1;) {
+          SVGADecodeBudget.value();
+          switch (tag) {
+            case 1: builder.version(ProtoAdapter.STRING.decode(reader)); break;
+            case 2: builder.params(MovieParams.ADAPTER.decode(reader)); break;
+            case 3:
+              SVGADecodeBudget.enter();
+              try { builder.images.putAll(images.decode(reader)); }
+              finally { SVGADecodeBudget.exit(); }
+              break;
+            case 4: builder.sprites.add(SpriteEntity.ADAPTER.decode(reader)); break;
+            case 5: builder.audios.add(AudioEntity.ADAPTER.decode(reader)); break;
+            default: {
+              FieldEncoding fieldEncoding = reader.peekFieldEncoding();
+              Object value = fieldEncoding.rawProtoAdapter().decode(reader);
+              builder.addUnknownField(tag, fieldEncoding, value);
+            }
           }
         }
+        reader.endMessage(token);
+        return builder.build();
+      } finally {
+        SVGADecodeBudget.exit();
       }
-      reader.endMessage(token);
-      return builder.build();
     }
 
     @Override

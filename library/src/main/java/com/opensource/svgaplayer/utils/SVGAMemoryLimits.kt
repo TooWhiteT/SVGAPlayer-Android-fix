@@ -52,6 +52,18 @@ internal object SVGAMemoryLimits {
      */
     val inflatedBytes = minOf(64 * MIB, Runtime.getRuntime().maxMemory() / 4)
 
+    /** 每份素材最多构造的消息/JSON 容器数；低堆设备进一步收紧，避免小数据膨胀为大量对象。 */
+    val structureNodes = minOf(50_000L, Runtime.getRuntime().maxMemory() / 2048).toInt().coerceAtLeast(1)
+
+    /** 字段和值也计数，覆盖重复标量、未知字段及 JSON 数组中的基本类型。 */
+    val structureValues = structureNodes * 8
+
+    /** 嵌套深度限制，防止 JSON 或嵌套消息耗尽调用栈。 */
+    const val MAX_STRUCTURE_DEPTH = 64
+
+    /** 每个绘制器的遮罩与颜色缓冲合计预算，包含 ALPHA_8 和 ARGB_8888 的实际分配量。 */
+    val matteBytes = bitmapBytes
+
     /**
      * 解码后位图任一边的最大像素数，与字节预算同时生效。
      * 可约束长宽比例极端的图片；超出此尺寸的原图会继续采样，而非直接按原尺寸分配。

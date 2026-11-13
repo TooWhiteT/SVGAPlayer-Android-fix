@@ -20,6 +20,8 @@ import java.util.*
 import java.lang.ref.WeakReference
 import java.util.concurrent.atomic.AtomicInteger
 import com.opensource.svgaplayer.utils.SVGAIO
+import com.opensource.svgaplayer.utils.SVGADecodeBudget
+import com.opensource.svgaplayer.utils.SVGAJsonDecoder
 import com.opensource.svgaplayer.utils.SVGAMemoryLimits
 import java.io.IOException
 
@@ -65,6 +67,7 @@ class SVGAVideoEntity {
         mFrameWidth = frameWidth
         mFrameHeight = frameHeight
         mCacheDir = cacheDir
+        SVGAJsonDecoder.validate(json)
         val movieJsonObject = json.optJSONObject("movie") ?: return
         setupByJson(movieJsonObject)
         try {
@@ -95,6 +98,7 @@ class SVGAVideoEntity {
         this.movieItem = entity
         entity.params?.let(this::setupByMovie)
         try {
+            validateStructure(entity)
             parserImages(entity)
             resetSprites(entity)
         } catch (error: Throwable) {
@@ -219,6 +223,30 @@ class SVGAVideoEntity {
         spriteList = entity.sprites?.map {
             return@map SVGAVideoSpriteEntity(it)
         } ?: listOf()
+    }
+
+    private fun validateStructure(entity: MovieEntity) {
+        SVGADecodeBudget.enter()
+        try {
+            repeat(entity.images.size + entity.audios.size) {
+                SVGADecodeBudget.enter()
+                SVGADecodeBudget.exit()
+            }
+            entity.sprites.forEach { sprite ->
+                SVGADecodeBudget.enter()
+                try {
+                    sprite.frames.forEach { frame ->
+                        SVGADecodeBudget.enter()
+                        try {
+                            frame.shapes.forEach {
+                                SVGADecodeBudget.enter()
+                                SVGADecodeBudget.exit()
+                            }
+                        } finally { SVGADecodeBudget.exit() }
+                    }
+                } finally { SVGADecodeBudget.exit() }
+            }
+        } finally { SVGADecodeBudget.exit() }
     }
 
     private class AudioLoadCallback(video: SVGAVideoEntity, private val expected: Int) : SVGASoundManager.SVGASoundCallBack {

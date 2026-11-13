@@ -11,10 +11,12 @@ android {
     sourceSets {
         test.resources.srcDir "${rootProject.projectDir}/app/src/main/assets"
         test.assets.srcDir "${rootProject.projectDir}/app/src/main/assets"
+        androidTest.assets.srcDir "${rootProject.projectDir}/app/src/main/assets"
     }
     defaultConfig {
         minSdkVersion 21
         targetSdkVersion 35
+        testInstrumentationRunner 'com.opensource.svgaplayer.SVGAMemoryStressInstrumentation'
     }
     buildTypes {
         release {

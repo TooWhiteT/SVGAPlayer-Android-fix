@@ -3,9 +3,9 @@ package com.opensource.svgaplayer
 import android.content.Context
 import com.opensource.svgaplayer.proto.MovieEntity
 import com.opensource.svgaplayer.utils.SVGAIO
+import com.opensource.svgaplayer.utils.SVGAJsonDecoder
 import com.opensource.svgaplayer.utils.SVGAMemoryLimits
 import com.opensource.svgaplayer.utils.log.LogUtils
-import org.json.JSONObject
 import java.io.*
 import java.net.HttpURLConnection
 import java.net.URL
@@ -250,7 +250,7 @@ class SVGAParser(context: Context?) {
                         directory, size.first, size.second)
             }
             spec.isFile -> FileInputStream(spec).use {
-                SVGAVideoEntity(JSONObject(String(SVGAIO.readBytes(it, SVGAMemoryLimits.inflatedBytes), Charsets.UTF_8)),
+                SVGAVideoEntity(SVGAJsonDecoder.decode(SVGAIO.LimitedInputStream(it, SVGAMemoryLimits.inflatedBytes)),
                         directory, size.first, size.second)
             }
             else -> throw IOException("SVGA cache has no movie data")

@@ -282,14 +282,18 @@ class SVGAMemoryTest {
         SVGAParser.setThreadPoolExecutor(executor)
         try {
             val context = RuntimeEnvironment.getApplication()
-            listOf("rose_2.0.0.svga", "matteBitmap_1.x.svga", "jojo_audio.svga").forEach { name ->
+            listOf("alarm.svga", "matteBitmap.svga", "rose.svga", "EmptyState.svga",
+                    "Rocket.svga", "heartbeat.svga", "Goddess.svga", "posche.svga",
+                    "750x80.svga", "Castle.svga", "matteBitmap_1.x.svga", "gradientBorder.svga",
+                    "MerryChristmas.svga", "jojo_audio.svga", "rose_2.0.0.svga", "matteRect.svga",
+                    "angel.svga").forEach { name ->
                 var completed = 0
                 var failed = false
                 val input = requireNotNull(javaClass.classLoader?.getResourceAsStream(name))
                 SVGAParser(context).decodeFromInputStream(input, SVGACache.buildCacheKey(name), object : SVGAParser.ParseCompletion {
                     override fun onComplete(videoItem: SVGAVideoEntity) {
                         assertTrue(name, videoItem.frames > 0)
-                        assertTrue(name, videoItem.imageMap.isNotEmpty())
+                        assertTrue(name, videoItem.spriteList.isNotEmpty())
                         assertNull(videoItem.movieItem)
                         completed++
                         videoItem.clear()

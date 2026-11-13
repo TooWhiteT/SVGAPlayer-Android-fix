@@ -2,6 +2,8 @@
 // Source file: svga.proto at 43:1
 package com.opensource.svgaplayer.proto;
 
+import com.opensource.svgaplayer.utils.SVGADecodeBudget;
+
 import com.squareup.wire.FieldEncoding;
 import com.squareup.wire.Message;
 import com.squareup.wire.ProtoAdapter;
@@ -358,20 +360,26 @@ public final class ShapeEntity extends Message<ShapeEntity, ShapeEntity.Builder>
 
       @Override
       public ShapeArgs decode(ProtoReader reader) throws IOException {
-        Builder builder = new Builder();
-        long token = reader.beginMessage();
-        for (int tag; (tag = reader.nextTag()) != -1;) {
-          switch (tag) {
-            case 1: builder.d(ProtoAdapter.STRING.decode(reader)); break;
-            default: {
-              FieldEncoding fieldEncoding = reader.peekFieldEncoding();
-              Object value = fieldEncoding.rawProtoAdapter().decode(reader);
-              builder.addUnknownField(tag, fieldEncoding, value);
+        SVGADecodeBudget.enter();
+        try {
+          Builder builder = new Builder();
+          long token = reader.beginMessage();
+          for (int tag; (tag = reader.nextTag()) != -1;) {
+            SVGADecodeBudget.value();
+            switch (tag) {
+              case 1: builder.d(ProtoAdapter.STRING.decode(reader)); break;
+              default: {
+                FieldEncoding fieldEncoding = reader.peekFieldEncoding();
+                Object value = fieldEncoding.rawProtoAdapter().decode(reader);
+                builder.addUnknownField(tag, fieldEncoding, value);
+              }
             }
           }
+          reader.endMessage(token);
+          return builder.build();
+        } finally {
+          SVGADecodeBudget.exit();
         }
-        reader.endMessage(token);
-        return builder.build();
       }
 
       @Override
@@ -570,24 +578,30 @@ public final class ShapeEntity extends Message<ShapeEntity, ShapeEntity.Builder>
 
       @Override
       public RectArgs decode(ProtoReader reader) throws IOException {
-        Builder builder = new Builder();
-        long token = reader.beginMessage();
-        for (int tag; (tag = reader.nextTag()) != -1;) {
-          switch (tag) {
-            case 1: builder.x(ProtoAdapter.FLOAT.decode(reader)); break;
-            case 2: builder.y(ProtoAdapter.FLOAT.decode(reader)); break;
-            case 3: builder.width(ProtoAdapter.FLOAT.decode(reader)); break;
-            case 4: builder.height(ProtoAdapter.FLOAT.decode(reader)); break;
-            case 5: builder.cornerRadius(ProtoAdapter.FLOAT.decode(reader)); break;
-            default: {
-              FieldEncoding fieldEncoding = reader.peekFieldEncoding();
-              Object value = fieldEncoding.rawProtoAdapter().decode(reader);
-              builder.addUnknownField(tag, fieldEncoding, value);
+        SVGADecodeBudget.enter();
+        try {
+          Builder builder = new Builder();
+          long token = reader.beginMessage();
+          for (int tag; (tag = reader.nextTag()) != -1;) {
+            SVGADecodeBudget.value();
+            switch (tag) {
+              case 1: builder.x(ProtoAdapter.FLOAT.decode(reader)); break;
+              case 2: builder.y(ProtoAdapter.FLOAT.decode(reader)); break;
+              case 3: builder.width(ProtoAdapter.FLOAT.decode(reader)); break;
+              case 4: builder.height(ProtoAdapter.FLOAT.decode(reader)); break;
+              case 5: builder.cornerRadius(ProtoAdapter.FLOAT.decode(reader)); break;
+              default: {
+                FieldEncoding fieldEncoding = reader.peekFieldEncoding();
+                Object value = fieldEncoding.rawProtoAdapter().decode(reader);
+                builder.addUnknownField(tag, fieldEncoding, value);
+              }
             }
           }
+          reader.endMessage(token);
+          return builder.build();
+        } finally {
+          SVGADecodeBudget.exit();
         }
-        reader.endMessage(token);
-        return builder.build();
       }
 
       @Override
@@ -782,23 +796,29 @@ public final class ShapeEntity extends Message<ShapeEntity, ShapeEntity.Builder>
 
       @Override
       public EllipseArgs decode(ProtoReader reader) throws IOException {
-        Builder builder = new Builder();
-        long token = reader.beginMessage();
-        for (int tag; (tag = reader.nextTag()) != -1;) {
-          switch (tag) {
-            case 1: builder.x(ProtoAdapter.FLOAT.decode(reader)); break;
-            case 2: builder.y(ProtoAdapter.FLOAT.decode(reader)); break;
-            case 3: builder.radiusX(ProtoAdapter.FLOAT.decode(reader)); break;
-            case 4: builder.radiusY(ProtoAdapter.FLOAT.decode(reader)); break;
-            default: {
-              FieldEncoding fieldEncoding = reader.peekFieldEncoding();
-              Object value = fieldEncoding.rawProtoAdapter().decode(reader);
-              builder.addUnknownField(tag, fieldEncoding, value);
+        SVGADecodeBudget.enter();
+        try {
+          Builder builder = new Builder();
+          long token = reader.beginMessage();
+          for (int tag; (tag = reader.nextTag()) != -1;) {
+            SVGADecodeBudget.value();
+            switch (tag) {
+              case 1: builder.x(ProtoAdapter.FLOAT.decode(reader)); break;
+              case 2: builder.y(ProtoAdapter.FLOAT.decode(reader)); break;
+              case 3: builder.radiusX(ProtoAdapter.FLOAT.decode(reader)); break;
+              case 4: builder.radiusY(ProtoAdapter.FLOAT.decode(reader)); break;
+              default: {
+                FieldEncoding fieldEncoding = reader.peekFieldEncoding();
+                Object value = fieldEncoding.rawProtoAdapter().decode(reader);
+                builder.addUnknownField(tag, fieldEncoding, value);
+              }
             }
           }
+          reader.endMessage(token);
+          return builder.build();
+        } finally {
+          SVGADecodeBudget.exit();
         }
-        reader.endMessage(token);
-        return builder.build();
       }
 
       @Override
@@ -1253,23 +1273,29 @@ public final class ShapeEntity extends Message<ShapeEntity, ShapeEntity.Builder>
 
         @Override
         public RGBAColor decode(ProtoReader reader) throws IOException {
-          Builder builder = new Builder();
-          long token = reader.beginMessage();
-          for (int tag; (tag = reader.nextTag()) != -1;) {
-            switch (tag) {
-              case 1: builder.r(ProtoAdapter.FLOAT.decode(reader)); break;
-              case 2: builder.g(ProtoAdapter.FLOAT.decode(reader)); break;
-              case 3: builder.b(ProtoAdapter.FLOAT.decode(reader)); break;
-              case 4: builder.a(ProtoAdapter.FLOAT.decode(reader)); break;
-              default: {
-                FieldEncoding fieldEncoding = reader.peekFieldEncoding();
-                Object value = fieldEncoding.rawProtoAdapter().decode(reader);
-                builder.addUnknownField(tag, fieldEncoding, value);
+          SVGADecodeBudget.enter();
+          try {
+            Builder builder = new Builder();
+            long token = reader.beginMessage();
+            for (int tag; (tag = reader.nextTag()) != -1;) {
+              SVGADecodeBudget.value();
+              switch (tag) {
+                case 1: builder.r(ProtoAdapter.FLOAT.decode(reader)); break;
+                case 2: builder.g(ProtoAdapter.FLOAT.decode(reader)); break;
+                case 3: builder.b(ProtoAdapter.FLOAT.decode(reader)); break;
+                case 4: builder.a(ProtoAdapter.FLOAT.decode(reader)); break;
+                default: {
+                  FieldEncoding fieldEncoding = reader.peekFieldEncoding();
+                  Object value = fieldEncoding.rawProtoAdapter().decode(reader);
+                  builder.addUnknownField(tag, fieldEncoding, value);
+                }
               }
             }
+            reader.endMessage(token);
+            return builder.build();
+          } finally {
+            SVGADecodeBudget.exit();
           }
-          reader.endMessage(token);
-          return builder.build();
         }
 
         @Override
@@ -1382,42 +1408,48 @@ public final class ShapeEntity extends Message<ShapeEntity, ShapeEntity.Builder>
 
       @Override
       public ShapeStyle decode(ProtoReader reader) throws IOException {
-        Builder builder = new Builder();
-        long token = reader.beginMessage();
-        for (int tag; (tag = reader.nextTag()) != -1;) {
-          switch (tag) {
-            case 1: builder.fill(RGBAColor.ADAPTER.decode(reader)); break;
-            case 2: builder.stroke(RGBAColor.ADAPTER.decode(reader)); break;
-            case 3: builder.strokeWidth(ProtoAdapter.FLOAT.decode(reader)); break;
-            case 4: {
-              try {
-                builder.lineCap(LineCap.ADAPTER.decode(reader));
-              } catch (EnumConstantNotFoundException e) {
-                builder.addUnknownField(tag, FieldEncoding.VARINT, (long) e.value);
+        SVGADecodeBudget.enter();
+        try {
+          Builder builder = new Builder();
+          long token = reader.beginMessage();
+          for (int tag; (tag = reader.nextTag()) != -1;) {
+            SVGADecodeBudget.value();
+            switch (tag) {
+              case 1: builder.fill(RGBAColor.ADAPTER.decode(reader)); break;
+              case 2: builder.stroke(RGBAColor.ADAPTER.decode(reader)); break;
+              case 3: builder.strokeWidth(ProtoAdapter.FLOAT.decode(reader)); break;
+              case 4: {
+                try {
+                  builder.lineCap(LineCap.ADAPTER.decode(reader));
+                } catch (EnumConstantNotFoundException e) {
+                  builder.addUnknownField(tag, FieldEncoding.VARINT, (long) e.value);
+                }
+                break;
               }
-              break;
-            }
-            case 5: {
-              try {
-                builder.lineJoin(LineJoin.ADAPTER.decode(reader));
-              } catch (EnumConstantNotFoundException e) {
-                builder.addUnknownField(tag, FieldEncoding.VARINT, (long) e.value);
+              case 5: {
+                try {
+                  builder.lineJoin(LineJoin.ADAPTER.decode(reader));
+                } catch (EnumConstantNotFoundException e) {
+                  builder.addUnknownField(tag, FieldEncoding.VARINT, (long) e.value);
+                }
+                break;
               }
-              break;
-            }
-            case 6: builder.miterLimit(ProtoAdapter.FLOAT.decode(reader)); break;
-            case 7: builder.lineDashI(ProtoAdapter.FLOAT.decode(reader)); break;
-            case 8: builder.lineDashII(ProtoAdapter.FLOAT.decode(reader)); break;
-            case 9: builder.lineDashIII(ProtoAdapter.FLOAT.decode(reader)); break;
-            default: {
-              FieldEncoding fieldEncoding = reader.peekFieldEncoding();
-              Object value = fieldEncoding.rawProtoAdapter().decode(reader);
-              builder.addUnknownField(tag, fieldEncoding, value);
+              case 6: builder.miterLimit(ProtoAdapter.FLOAT.decode(reader)); break;
+              case 7: builder.lineDashI(ProtoAdapter.FLOAT.decode(reader)); break;
+              case 8: builder.lineDashII(ProtoAdapter.FLOAT.decode(reader)); break;
+              case 9: builder.lineDashIII(ProtoAdapter.FLOAT.decode(reader)); break;
+              default: {
+                FieldEncoding fieldEncoding = reader.peekFieldEncoding();
+                Object value = fieldEncoding.rawProtoAdapter().decode(reader);
+                builder.addUnknownField(tag, fieldEncoding, value);
+              }
             }
           }
+          reader.endMessage(token);
+          return builder.build();
+        } finally {
+          SVGADecodeBudget.exit();
         }
-        reader.endMessage(token);
-        return builder.build();
       }
 
       @Override
@@ -1460,32 +1492,38 @@ public final class ShapeEntity extends Message<ShapeEntity, ShapeEntity.Builder>
 
     @Override
     public ShapeEntity decode(ProtoReader reader) throws IOException {
-      Builder builder = new Builder();
-      long token = reader.beginMessage();
-      for (int tag; (tag = reader.nextTag()) != -1;) {
-        switch (tag) {
-          case 1: {
-            try {
-              builder.type(ShapeType.ADAPTER.decode(reader));
-            } catch (EnumConstantNotFoundException e) {
-              builder.addUnknownField(tag, FieldEncoding.VARINT, (long) e.value);
+      SVGADecodeBudget.enter();
+      try {
+        Builder builder = new Builder();
+        long token = reader.beginMessage();
+        for (int tag; (tag = reader.nextTag()) != -1;) {
+          SVGADecodeBudget.value();
+          switch (tag) {
+            case 1: {
+              try {
+                builder.type(ShapeType.ADAPTER.decode(reader));
+              } catch (EnumConstantNotFoundException e) {
+                builder.addUnknownField(tag, FieldEncoding.VARINT, (long) e.value);
+              }
+              break;
             }
-            break;
-          }
-          case 10: builder.styles(ShapeStyle.ADAPTER.decode(reader)); break;
-          case 11: builder.transform(Transform.ADAPTER.decode(reader)); break;
-          case 2: builder.shape(ShapeArgs.ADAPTER.decode(reader)); break;
-          case 3: builder.rect(RectArgs.ADAPTER.decode(reader)); break;
-          case 4: builder.ellipse(EllipseArgs.ADAPTER.decode(reader)); break;
-          default: {
-            FieldEncoding fieldEncoding = reader.peekFieldEncoding();
-            Object value = fieldEncoding.rawProtoAdapter().decode(reader);
-            builder.addUnknownField(tag, fieldEncoding, value);
+            case 10: builder.styles(ShapeStyle.ADAPTER.decode(reader)); break;
+            case 11: builder.transform(Transform.ADAPTER.decode(reader)); break;
+            case 2: builder.shape(ShapeArgs.ADAPTER.decode(reader)); break;
+            case 3: builder.rect(RectArgs.ADAPTER.decode(reader)); break;
+            case 4: builder.ellipse(EllipseArgs.ADAPTER.decode(reader)); break;
+            default: {
+              FieldEncoding fieldEncoding = reader.peekFieldEncoding();
+              Object value = fieldEncoding.rawProtoAdapter().decode(reader);
+              builder.addUnknownField(tag, fieldEncoding, value);
+            }
           }
         }
+        reader.endMessage(token);
+        return builder.build();
+      } finally {
+        SVGADecodeBudget.exit();
       }
-      reader.endMessage(token);
-      return builder.build();
     }
 
     @Override

@@ -26,10 +26,47 @@ class SVGADynamicEntity {
         @Volatile var cancelled = false
         @Volatile var connection: HttpURLConnection? = null
         @Volatile var task: Future<*>? = null
-        fun cancel() {
-            cancelled = true
+        private var pendingBitmap: Bitmap? = null
+        private var delivery: Runnable? = null
+
+        @Synchronized
+        fun post(owner: WeakReference<SVGADynamicEntity>, key: String, bitmap: Bitmap): Boolean {
+            if (cancelled) {
+                bitmap.recycle()
+                return false
+            }
+            pendingBitmap = bitmap
+            // The message only holds the request. Cancellation can detach its bitmap immediately.
+            val message = Runnable { deliverImage(owner, this, key) }
+            delivery = message
+            if (imageHandler.post(message)) return true
+            delivery = null
+            pendingBitmap = null
+            bitmap.recycle()
+            return false
+        }
+
+        @Synchronized
+        fun takeBitmap(): Bitmap? {
+            delivery = null
+            val bitmap = pendingBitmap
+            pendingBitmap = null
+            return bitmap
+        }
+
+        fun cancel(): Boolean {
+            val discarded = synchronized(this) {
+                cancelled = true
+                delivery?.let { imageHandler.removeCallbacks(it) }
+                delivery = null
+                val bitmap = pendingBitmap
+                pendingBitmap = null
+                bitmap?.recycle()
+                bitmap != null
+            }
             connection?.disconnect()
             task?.cancel(true)
+            return discarded
         }
     }
 
@@ -66,10 +103,23 @@ class SVGADynamicEntity {
     }
 
     @Synchronized
-    private fun decodedImage(request: ImageRequest, bitmap: Bitmap) {
-        if (imageReservations.containsKey(request)) {
-            imageReservations[request] = bitmap.allocationByteCount.toLong()
+    private fun postImage(owner: WeakReference<SVGADynamicEntity>, request: ImageRequest,
+                          key: String, bitmap: Bitmap): Boolean {
+        if (request.cancelled || imageRequests[key] !== request) {
+            bitmap.recycle()
+            discardImage(request, key)
+            return false
         }
+        imageReservations[request] = bitmap.allocationByteCount.toLong()
+        val posted = request.post(owner, key, bitmap)
+        if (!posted) discardImage(request, key)
+        return posted
+    }
+
+    private fun cancelImage(request: ImageRequest) {
+        // A running decoder still owns its reservation until its finally block exits.
+        // A queued result is detached and recycled synchronously, so refund it now.
+        if (request.cancel()) imageReservations.remove(request)
     }
 
     internal var dynamicHidden: HashMap<String, Boolean> = hashMapOf()
@@ -101,14 +151,15 @@ class SVGADynamicEntity {
 
     @Synchronized
     fun setDynamicImage(bitmap: Bitmap, forKey: String) {
-        imageRequests.remove(forKey)?.cancel()
+        imageRequests.remove(forKey)?.let { cancelImage(it) }
         dynamicImage[forKey] = bitmap
         isTextDirty = true
     }
 
+    @Synchronized
     fun setDynamicImage(url: String, forKey: String) {
         val request = ImageRequest()
-        imageRequests.put(forKey, request)?.cancel()
+        imageRequests.put(forKey, request)?.let { cancelImage(it) }
         val owner = WeakReference(this)
         try {
             request.task = SVGAParser.threadPoolExecutor.submit { downloadImage(owner, request, url, forKey) }
@@ -121,6 +172,14 @@ class SVGADynamicEntity {
     }
 
     companion object {
+        private val imageHandler = Handler(Looper.getMainLooper())
+
+        private fun deliverImage(owner: WeakReference<SVGADynamicEntity>, request: ImageRequest, key: String) {
+            val bitmap = request.takeBitmap() ?: return
+            val entity = owner.get()
+            if (entity == null || !entity.finishImage(request, key, bitmap)) bitmap.recycle()
+        }
+
         private fun downloadImage(owner: WeakReference<SVGADynamicEntity>, request: ImageRequest,
                                   url: String, key: String) {
             var connection: HttpURLConnection? = null
@@ -138,16 +197,9 @@ class SVGADynamicEntity {
                 val bytes = connection.inputStream.use { SVGAIO.readBytes(it, SVGAMemoryLimits.inputBytes) }
                 if (request.cancelled) return
                 val bitmap = SVGABitmapByteArrayDecoder.decodeBitmapFrom(bytes, 0, 0, budget) ?: return
-                owner.get()?.decodedImage(request, bitmap)
-                val accepted = Handler(Looper.getMainLooper()).post {
-                    val entity = owner.get()
-                    if (entity == null || !entity.finishImage(request, key, bitmap)) {
-                        // The bitmap was never handed to a caller or used in a display list.
-                        bitmap.recycle()
-                    }
-                }
-                posted = accepted
-                if (!accepted) bitmap.recycle()
+                val entity = owner.get()
+                if (entity == null) bitmap.recycle()
+                else posted = entity.postImage(owner, request, key, bitmap)
             } catch (error: Exception) {
                 if (!request.cancelled) LogUtils.error("SVGADynamicEntity", "Image download failed", error)
             } catch (error: OutOfMemoryError) {
@@ -228,7 +280,7 @@ class SVGADynamicEntity {
 
     @Synchronized
     fun clearDynamicObjects() {
-        imageRequests.values.forEach { it.cancel() }
+        imageRequests.values.forEach { cancelImage(it) }
         imageRequests.clear()
         this.isTextDirty = true
         this.dynamicHidden.clear()

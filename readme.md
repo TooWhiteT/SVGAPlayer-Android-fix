@@ -39,11 +39,26 @@ Images are decoded with bounds checks, alpha preservation, and sampling. A bitma
 
 Downloads are limited to 32 MiB or 1/8 of the heap, and expanded data to 64 MiB or 1/4 of the heap. The default executor runs two tasks with a queue of 32. Repeated audio events share samples; each video supports up to 32 distinct audio segments. Audio preparation has a 30-second fallback to deliver the video instead of retaining completion callbacks indefinitely.
 
+Structural limits are enforced during decoding, before allocating the full object tree. Each asset allows at most `min(50,000, max heap bytes / 2048)` Protobuf messages or JSON containers, eight times that many fields/values, and 64 nesting levels. JSON is built from a streaming reader. Assets exceeding the cumulative budget for frames, sprites, shapes, or other structures report `onError()`, regardless of compressed file size. The sample `mp3_to_long.svga` exceeds this frame-object budget and is rejected.
+
+Matte rendering uses the visible clip bounds. The color and alpha buffers share a budget of `min(16 MiB, max heap / 16)`, verified against their actual allocations. Large regions and allocation failures trigger further sampling; the result is scaled back to its destination, so large matte content can lose resolution. Matte rendering no longer creates a destination-sized `saveLayer()`.
+
 All parser instances share a limit of two undelivered videos, covering parsing, audio preparation, and main-thread delivery, even with a custom executor. Workers wait for capacity before reading assets; delivery, failure, or completed cancellation cleanup returns capacity. Cancellation removes pending delivery messages and clears their videos. Results without completion callbacks are cleared immediately. Delivered videos belong to the caller and are outside this limit.
 
-`SVGAImageView.clearsAfterDetached` now defaults to `true`. Set it to `false` only when retaining a player for reattachment, and call `clear()` when finally disposing it. Replacing video or calling `setImageDrawable`, `setImageBitmap`, `setImageResource`, or `setImageURI` stops the old animation, releases the old drawable, and cancels pending loads. Coordinate cleanup when sharing video/dynamic entities between players. `clear()` stops animation, drops callbacks and caches, and invalidates pending dynamic image downloads. Published/caller-supplied Bitmaps are not forcibly recycled. The original `movieItem` is dropped during preparation. Call `SVGASoundManager.release()` when global audio is no longer needed; it releases the native pool and supports later initialization.
+`SVGAImageView.clearsAfterDetached` now defaults to `true`. Set it to `false` only when retaining a player for reattachment, and call `clear()` when finally disposing it. Replacing video or calling `setImageDrawable`, `setImageBitmap`, `setImageResource`, or `setImageURI` stops the old animation, releases the old drawable, and cancels pending loads. Coordinate cleanup when sharing video/dynamic entities between players. `clear()` stops animation and drops callbacks and caches. Clearing dynamic images or replacing the same key removes queued deliveries and immediately recycles unpublished Bitmaps. Active decoders retain their reservations until the worker exits, preventing premature refunds from exceeding the memory budget. Published/caller-supplied Bitmaps are not forcibly recycled. The original `movieItem` is dropped during preparation. Call `SVGASoundManager.release()` when global audio is no longer needed; it releases the native pool and supports later initialization.
 
 Run regression checks with `./gradlew :library:testDebugUnitTest`; bitmap/mask tests use Robolectric native graphics.
+
+Device stress tests run in a separate test APK. Replace `SERIAL` with the device ID from `adb devices`:
+
+```sh
+./gradlew :library:assembleDebugAndroidTest
+adb -s SERIAL install -r -t library/build/outputs/apk/androidTest/debug/library-debug-androidTest.apk
+adb -s SERIAL shell am instrument -w -r com.opensource.svgaplayer.test/com.opensource.svgaplayer.SVGAMemoryStressInstrumentation
+adb -s SERIAL exec-out run-as com.opensource.svgaplayer.test cat files/svga-memory-stress.json > library/build/reports/svga-memory-stress.json
+```
+
+After warmup, the runner performs 240 load/render/detach cycles, 600 parse cancellations, 600 cancellations of queued 4 MiB dynamic images, 360 matte frames up to 4096×2160, and 200 oversized-structure rejections. Its JSON report records phase durations, PSS/Java/native heap samples, actual matte allocations, and weak-reference survivors after GC. Post-GC samples help identify persistent growth; sampled peaks are not instantaneous peaks or a substitute for longer runs and other devices. The Activity exists only in the test APK and uses an explicit shell launch to support devices restricting background starts.
 
 Here introduce `SVGAPlayer-Android` usage. Wonder exporting usage? Click [here](http://svga.io/designer.html).
 

@@ -28,13 +28,28 @@ Android SDK 需要安装 Android 15（API 35）和 Build Tools 34.0.0，并在�
 
 下载上限为 32 MiB（同时受堆上限的 1/8 约束），解压数据上限为 64 MiB（同时受堆上限的 1/4 约束）。默认最多同时执行 2 个后台任务，等待队列最多 32 个任务。重复音频事件复用采样，每个视频最多加载 32 个不同音频片段。音频准备最多等待 30 秒，超时后继续交付视频，避免无限保留解析回调。
 
+结构预算在解码过程中检查，而不是等对象全部创建后再检查。每份素材最多包含 `min(50,000, 应用堆上限字节数 / 2048)` 个 Protobuf 消息或 JSON 容器，字段/值数量最多为该额度的 8 倍，嵌套深度最多 64 层；JSON 使用流式读取构造对象。帧、图层、形状等累计超限时，通过 `onError()` 拒绝素材，即使压缩文件很小也一样。示例 `mp3_to_long.svga` 的帧实体数量超过预算，会被拒绝。
+
+遮罩按可见裁剪区域绘制，颜色缓冲与透明度缓冲合计最多占 `min(16 MiB, 应用堆上限 / 16)`，同时检查实际分配量。超出预算或分配失败时继续降采样，再放大到目标区域；大画布上的遮罩内容可能降低分辨率。绘制过程不再为遮罩创建目标画布大小的 `saveLayer()`。
+
 所有 Parser 实例合计最多保留 2 个尚未交付的视频，覆盖解析、音频准备及主线程待交付阶段，即使替换线程池也生效。额度不足时后台会在读取素材前等待；交付、失败或取消清理完成后归还额度。取消会移除待交付消息并释放其素材，无完成回调的结果直接清理。已交付的视频由调用方管理，不计入此限制。
 
 `SVGAImageView.clearsAfterDetached` 默认改为 `true`，移出窗口时释放素材并取消加载。需要保留播放器供重新挂载时，可显式设为 `false`，并在最终不再使用时调用 `clear()`。替换视频或通过 `setImageDrawable`、`setImageBitmap`、`setImageResource`、`setImageURI` 设置图片时，会停止旧动画、释放旧 Drawable 并取消待完成的加载；共享同一个视频或动态实体时，仍须协调多个播放器的释放时机。
 
-`clear()` 是最终释放操作：停止动画、断开回调、清理素材和绘制缓存。动态实体清理后会拒绝旧下载结果。已经发布或由调用方传入的 Bitmap 不会被强制 `recycle()`，以保护共享使用。原始 `movieItem` 在准备完成前即从视频实体中移除。全局音频不再使用时调用 `SVGASoundManager.release()`，该方法会真正释放 SoundPool，可再次 `init()`。
+`clear()` 是最终释放操作：停止动画、断开回调、清理素材和绘制缓存。动态图片清理或同 key 替换时，会移除待交付消息，并立即回收尚未发布的 Bitmap；正在解码的请求保留预算到工作线程退出，防止提前归还额度导致并发超额分配。已经发布或由调用方传入的 Bitmap 不会被强制 `recycle()`，以保护共享使用。原始 `movieItem` 在准备完成前即从视频实体中移除。全局音频不再使用时调用 `SVGASoundManager.release()`，该方法会真正释放 SoundPool，可再次 `init()`。
 
 回归测试：`./gradlew :library:testDebugUnitTest`，其中遮罩和 PNG 解码使用 Robolectric 原生图形模式。
+
+真机压力测试使用独立测试 APK，不修改示例 APK。将下列 `SERIAL` 替换为 `adb devices` 中的设备编号：
+
+```sh
+./gradlew :library:assembleDebugAndroidTest
+adb -s SERIAL install -r -t library/build/outputs/apk/androidTest/debug/library-debug-androidTest.apk
+adb -s SERIAL shell am instrument -w -r com.opensource.svgaplayer.test/com.opensource.svgaplayer.SVGAMemoryStressInstrumentation
+adb -s SERIAL exec-out run-as com.opensource.svgaplayer.test cat files/svga-memory-stress.json > library/build/reports/svga-memory-stress.json
+```
+
+测试在预热后执行 240 次加载/绘制/View 分离、600 次解析取消、600 次 4 MiB 动态图片待交付取消、360 帧最大 4096×2160 遮罩绘制，以及 200 次超限结构拒绝。报告包含阶段耗时、PSS/Java/Native 堆采样、遮罩实际分配量，以及 GC 后 View/视频实体的弱引用存活数。GC 后样本用于观察持续增长；采样峰值不等于瞬时峰值，也不能替代其他机型和长期运行验证。测试 Activity 仅存在于测试 APK，通过显式 shell 启动以兼容后台启动限制。
 
 我们在这里介绍 `SVGAPlayer-Android` 的用法。想要知道如何导出动画，点击[这里](http://svga.io/designer.html)。
 

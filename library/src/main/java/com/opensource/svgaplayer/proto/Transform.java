@@ -2,6 +2,8 @@
 // Source file: svga.proto at 34:1
 package com.opensource.svgaplayer.proto;
 
+import com.opensource.svgaplayer.utils.SVGADecodeBudget;
+
 import com.squareup.wire.FieldEncoding;
 import com.squareup.wire.Message;
 import com.squareup.wire.ProtoAdapter;
@@ -220,25 +222,31 @@ public final class Transform extends Message<Transform, Transform.Builder> {
 
     @Override
     public Transform decode(ProtoReader reader) throws IOException {
-      Builder builder = new Builder();
-      long token = reader.beginMessage();
-      for (int tag; (tag = reader.nextTag()) != -1;) {
-        switch (tag) {
-          case 1: builder.a(ProtoAdapter.FLOAT.decode(reader)); break;
-          case 2: builder.b(ProtoAdapter.FLOAT.decode(reader)); break;
-          case 3: builder.c(ProtoAdapter.FLOAT.decode(reader)); break;
-          case 4: builder.d(ProtoAdapter.FLOAT.decode(reader)); break;
-          case 5: builder.tx(ProtoAdapter.FLOAT.decode(reader)); break;
-          case 6: builder.ty(ProtoAdapter.FLOAT.decode(reader)); break;
-          default: {
-            FieldEncoding fieldEncoding = reader.peekFieldEncoding();
-            Object value = fieldEncoding.rawProtoAdapter().decode(reader);
-            builder.addUnknownField(tag, fieldEncoding, value);
+      SVGADecodeBudget.enter();
+      try {
+        Builder builder = new Builder();
+        long token = reader.beginMessage();
+        for (int tag; (tag = reader.nextTag()) != -1;) {
+          SVGADecodeBudget.value();
+          switch (tag) {
+            case 1: builder.a(ProtoAdapter.FLOAT.decode(reader)); break;
+            case 2: builder.b(ProtoAdapter.FLOAT.decode(reader)); break;
+            case 3: builder.c(ProtoAdapter.FLOAT.decode(reader)); break;
+            case 4: builder.d(ProtoAdapter.FLOAT.decode(reader)); break;
+            case 5: builder.tx(ProtoAdapter.FLOAT.decode(reader)); break;
+            case 6: builder.ty(ProtoAdapter.FLOAT.decode(reader)); break;
+            default: {
+              FieldEncoding fieldEncoding = reader.peekFieldEncoding();
+              Object value = fieldEncoding.rawProtoAdapter().decode(reader);
+              builder.addUnknownField(tag, fieldEncoding, value);
+            }
           }
         }
+        reader.endMessage(token);
+        return builder.build();
+      } finally {
+        SVGADecodeBudget.exit();
       }
-      reader.endMessage(token);
-      return builder.build();
     }
 
     @Override
