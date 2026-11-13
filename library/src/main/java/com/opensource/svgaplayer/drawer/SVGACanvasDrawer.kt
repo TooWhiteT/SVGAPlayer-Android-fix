@@ -18,6 +18,8 @@ import com.opensource.svgaplayer.entities.SVGAVideoShapeEntity
 
 internal class SVGACanvasDrawer(videoItem: SVGAVideoEntity, val dynamicItem: SVGADynamicEntity) : SGVADrawer(videoItem) {
 
+    var audioEnabled = true
+
     private val sharedValues = ShareValues()
     private val drawTextCache = LinkedHashMap<String, Bitmap>(16, 0.75f, true)
     private var textCacheBytes = 0L
@@ -32,7 +34,7 @@ internal class SVGACanvasDrawer(videoItem: SVGAVideoEntity, val dynamicItem: SVG
 
     override fun drawFrame(canvas: Canvas, frameIndex: Int, scaleType: ImageView.ScaleType) {
         super.drawFrame(canvas, frameIndex, scaleType)
-        playAudio(frameIndex)
+        if (audioEnabled) playAudio(frameIndex)
         pathCache.onSizeChanged(canvas)
         val sprites = requestFrameSprites(frameIndex)
         try {

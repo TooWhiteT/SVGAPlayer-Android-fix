@@ -33,6 +33,37 @@ Install Android SDK Platform 35 and Build Tools 34.0.0, and set `sdk.dir` in the
 
 The sample APK is generated at `app/build/outputs/apk/debug/app-debug.apk`, and the library AAR at `library/build/outputs/aar/library-release.aar`. Gradle runs on JDK 21; Java and Kotlin sources target Java 8.
 
+### Lifecycle-aware playback
+
+Use `LifecycleSVGAImageView` to pause and resume with screen visibility:
+
+```xml
+<com.opensource.svgaplayer.LifecycleSVGAImageView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="200dp"
+    android:layout_height="200dp"
+    app:source="rose_2.0.0.svga"
+    app:autoPlay="true" />
+```
+
+The View resolves an explicitly assigned `lifecycleOwner`, then the View tree owner, then a Context owner. Playback requires an attached, visible View, visible ancestors/window, and an owner state of at least `STARTED`. Without an owner, View/window visibility still controls playback. This feature adds AndroidX Lifecycle Runtime 2.6.2.
+
+Fragments normally supply their View tree owner automatically. For custom containers without an owner, bind the Fragment's View lifecycle explicitly:
+
+```kotlin
+animationView.lifecycleOwner = viewLifecycleOwner
+animationView.setVideoItem(videoItem) // Autoplays when visible; otherwise stays paused.
+```
+
+For containers such as ViewPager2 that keep cached pages `STARTED`, set `animationView.minActiveState = Lifecycle.State.RESUMED` to play only in the active page.
+
+Open “LifecycleSVGAImageView 生命周期测试” in the sample app to inspect lifecycle/playback state, current frame and the last paused frame. Controls hide the parent, manually pause/resume, remove/recreate the View, and open another page. Removing the View checks whether its drawable was cleared. Pressing Home and returning also exercises background pause/resume.
+
+Hiding the View or receiving `ON_STOP` pauses both animation and audio. Becoming visible resumes the same position, range, direction and loop progress. An explicit `pauseAnimation()` remains paused until `resumeAnimation()`; after `stopAnimation()`, call `startAnimation()` again. `app:autoPlay="false"` disables autoplay for newly assigned videos; manually started animations still follow visibility/lifecycle changes. Completed finite animations do not restart when shown again.
+
+Detaching or receiving `ON_DESTROY` cancels View-owned loads, releases video/dynamic resources and drawing caches, clears callbacks, and removes the lifecycle observer. This new View always releases on detach, including when the inherited `clearsAfterDetached` is false. Bind a new video when reusing a recycled or reattached View; `clear()` may also be called explicitly in `onViewRecycled`. The original `SVGAImageView` retains manual control and gains position-preserving pause/resume methods.
+
 ### Large assets and cleanup
 
 Images are decoded with bounds checks, alpha preservation, and sampling. A bitmap is limited to 16 MiB (or 1/16 of the app heap), and a video's textures to 32 MiB (or 1/8 of the heap), whichever is smaller; maximum decoded dimension is 4096 pixels. Large assets can lose resolution. Network replacement images have equivalent per-image and aggregate limits; callers remain responsible for the size of directly supplied Bitmaps. Unloadable video assets report `ParseCompletion.onError()`.
@@ -150,7 +181,7 @@ It is no longer recommended. Developers can control resource release through cle
 
 #### clearsAfterDetached: Boolean
 
-Defaults to `false`.Clears canvas and the internal data of SVGAVideoEntity after SVGAImageView detached.
+Defaults to `true`. Releases the video resources after SVGAImageView detaches. `LifecycleSVGAImageView` always releases on detach.
 
 #### fillMode: String
 

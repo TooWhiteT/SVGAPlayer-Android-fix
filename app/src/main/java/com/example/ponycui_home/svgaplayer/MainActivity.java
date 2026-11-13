@@ -52,6 +52,7 @@ public class MainActivity extends AppCompatActivity {
         this.items.add(new SampleItem("Animation From Layout XML", new Intent(this, AnimationFromLayoutActivity.class)));
         this.items.add(new SampleItem("Animation With Dynamic Image", new Intent(this, AnimationWithDynamicImageActivity.class)));
         this.items.add(new SampleItem("Animation With Dynamic Click", new Intent(this, AnimationFromClickActivity.class)));
+        this.items.add(new SampleItem(getString(R.string.lifecycle_sample_title), new Intent(this, LifecycleAnimationActivity.class)));
     }
 
     void setupListView() {

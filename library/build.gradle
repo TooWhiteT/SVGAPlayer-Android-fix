@@ -46,6 +46,8 @@ kotlin {
 }
 
 dependencies {
+    // Keep a low Lifecycle baseline; consuming apps can resolve their newer version.
+    api 'androidx.lifecycle:lifecycle-runtime:2.6.2'
     implementation 'com.squareup.wire:wire-runtime:4.4.1'
     implementation 'com.squareup.okio:okio:3.0.0'
     testImplementation 'junit:junit:4.13.2'

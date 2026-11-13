@@ -38,6 +38,10 @@ open class SVGAImageView @JvmOverloads constructor(
     var isAnimating = false
         private set
 
+    /** A paused animation retains its timeline, range, direction and remaining loops. */
+    val isPaused: Boolean
+        get() = mAnimator?.isPaused == true
+
     var loops = 0
 
     @Deprecated(
@@ -62,6 +66,9 @@ open class SVGAImageView @JvmOverloads constructor(
     private var requestGeneration = 0
     private var cancelDownload: (() -> Unit)? = null
     private var detached = false
+
+    protected val autoPlayEnabled: Boolean
+        get() = mAutoPlay
 
     init {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.JELLY_BEAN_MR2) {
@@ -115,7 +122,7 @@ open class SVGAImageView @JvmOverloads constructor(
                 videoItem.antiAlias = view.mAntiAlias
                 view.setVideoItem(videoItem)
                 view.getSVGADrawable()?.scaleType = view.scaleType
-                if (view.mAutoPlay) view.startAnimation()
+                if (view.mAutoPlay && !view.isAnimating && !view.isPaused) view.startAnimation()
             }
             override fun onError() {}
         }
@@ -136,8 +143,8 @@ open class SVGAImageView @JvmOverloads constructor(
         startAnimation(null, false)
     }
 
-    fun startAnimation(range: SVGARange?, reverse: Boolean = false) {
-        stopAnimation(false)
+    open fun startAnimation(range: SVGARange?, reverse: Boolean = false) {
+        stopAnimationInternal(false)
         play(range, reverse)
     }
 
@@ -155,12 +162,13 @@ open class SVGAImageView @JvmOverloads constructor(
         animator.repeatCount = if (loops <= 0) 99999 else loops - 1
         animator.addUpdateListener(mAnimatorUpdateListener)
         animator.addListener(mAnimatorListener)
+        mAnimator = animator
+        drawable.resume()
         if (reverse) {
             animator.reverse()
         } else {
             animator.start()
         }
-        mAnimator = animator
     }
 
     private fun setupDrawable() {
@@ -270,16 +278,33 @@ open class SVGAImageView @JvmOverloads constructor(
         super.setImageURI(uri)
     }
 
-    fun pauseAnimation() {
-        stopAnimation(false)
+    open fun pauseAnimation() {
+        val animator = mAnimator ?: return
+        if (animator.isPaused) return
+        animator.pause()
+        isAnimating = false
+        getSVGADrawable()?.pause()
         callback?.onPause()
+    }
+
+    /** Continue the animation paused by [pauseAnimation], without restarting it. */
+    open fun resumeAnimation() {
+        val animator = mAnimator ?: return
+        if (!animator.isPaused) return
+        getSVGADrawable()?.resume()
+        animator.resume()
+        isAnimating = mAnimator === animator && animator.isStarted && !animator.isPaused
     }
 
     fun stopAnimation() {
         stopAnimation(clear = clearsAfterStop)
     }
 
-    fun stopAnimation(clear: Boolean) {
+    open fun stopAnimation(clear: Boolean) {
+        stopAnimationInternal(clear)
+    }
+
+    private fun stopAnimationInternal(clear: Boolean) {
         val animator = mAnimator
         mAnimator = null
         animator?.removeAllListeners()
@@ -306,6 +331,7 @@ open class SVGAImageView @JvmOverloads constructor(
 
     fun stepToFrame(frame: Int, andPlay: Boolean) {
         pauseAnimation()
+        stopAnimationInternal(false)
         val drawable = getSVGADrawable() ?: return
         drawable.currentFrame = frame
         if (andPlay) {

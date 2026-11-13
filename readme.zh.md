@@ -22,6 +22,37 @@ Android SDK 需要安装 Android 15（API 35）和 Build Tools 34.0.0，并在�
 
 示例 APK 输出到 `app/build/outputs/apk/debug/app-debug.apk`，库 AAR 输出到 `library/build/outputs/aar/library-release.aar`。Gradle 使用 JDK 21 运行，Java/Kotlin 编译目标为 Java 8。
 
+### 生命周期感知播放
+
+需要随界面显示、隐藏自动播放或暂停时，使用 `LifecycleSVGAImageView`：
+
+```xml
+<com.opensource.svgaplayer.LifecycleSVGAImageView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="200dp"
+    android:layout_height="200dp"
+    app:source="rose_2.0.0.svga"
+    app:autoPlay="true" />
+```
+
+View 会优先使用显式设置的 `lifecycleOwner`，其次查找 View 树的 LifecycleOwner，最后查找 Context 中的 LifecycleOwner。找到 owner 后，只有生命周期至少为 `STARTED`、View 已挂载且自身、父容器、窗口均可见时才播放。没有 owner 的普通 Activity 中，仍根据 View 和窗口可见性暂停、恢复。库通过 AndroidX Lifecycle Runtime 2.6.2 提供这些能力。
+
+在 Fragment 中，通常会自动找到 View 树的 owner；自定义容器没有设置 owner 时，可以显式绑定：
+
+```kotlin
+animationView.lifecycleOwner = viewLifecycleOwner
+animationView.setVideoItem(videoItem) // 默认自动播放；暂时不可见时保持暂停
+```
+
+ViewPager2 等会将缓存页面保留在 `STARTED` 状态的容器中，可以设置 `animationView.minActiveState = Lifecycle.State.RESUMED`，仅让当前活跃页面播放。
+
+示例应用首页选择「LifecycleSVGAImageView 生命周期测试」，可查看实时生命周期、播放状态、当前帧与最近暂停帧。页面提供隐藏父容器、手动暂停/恢复、移除/重建 View 和打开另一页的操作；移除后会检查 View 是否已清空素材。也可以按 Home 再返回，观察后台暂停及恢复。
+
+界面隐藏或收到 `ON_STOP` 时，暂停动画和音频并保留进度；再次可见时继续原有播放区间、方向及循环进度。主动调用 `pauseAnimation()` 后不会自动恢复，需要调用 `resumeAnimation()`；`stopAnimation()` 停止后需要重新 `startAnimation()`。设置 `app:autoPlay="false"` 可关闭新素材自动播放，手动开始的动画仍受可见性和生命周期控制。有限次数动画正常结束后，不会因重新显示而重播。
+
+View 移出窗口或 owner 收到 `ON_DESTROY` 时，会取消 View 自己发起的加载、释放视频/动态资源/绘制缓存、清理业务回调并移除生命周期观察者。这个新 View 始终在 detach 时释放资源，即使将继承的 `clearsAfterDetached` 设为 `false`。RecyclerView 中复用或重新挂载后，需要重新绑定素材；也可以在 `onViewRecycled` 中显式调用 `clear()`。原有 `SVGAImageView` 继续支持手动控制，并新增保留进度的暂停和恢复接口。
+
 ### 大素材与资源释放
 
 位图始终先读取尺寸，再按显示尺寸和内存预算采样，保留透明通道。默认单张贴图最多占 16 MiB，单个视频的贴图总量最多 32 MiB；低内存设备还会分别收紧到应用堆上限的 1/16、1/8。单边最多 4096 像素。超大素材可能降低分辨率，无法容纳的素材通过 `ParseCompletion.onError()` 报错。动态网络图片同样有单张与总量预算，调用方直接传入的 Bitmap 仍由调用方控制大小。
@@ -132,7 +163,7 @@ SVGAPlayer 可以从本地 `assets` 目录，或者远端服务器上加载动�
 不再推荐使用，开发者可以通过 clearAfterDetached 控制资源释放，或者手动通过 SVGAVideoEntity#clear 控制资源释放
 
 #### clearsAfterDetached: Boolean
-默认为 `false`，当 SVGAImageView 触发 onDetachedFromWindow 方法时，是否清空画布。
+默认为 `true`，当 SVGAImageView 触发 onDetachedFromWindow 方法时，是否释放素材。`LifecycleSVGAImageView` 始终在 detach 时释放。
 
 #### fillMode: String
 

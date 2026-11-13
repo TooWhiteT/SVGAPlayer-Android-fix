@@ -63,6 +63,7 @@ class SVGADrawable(val videoItem: SVGAVideoEntity, val dynamicItem: SVGADynamicE
     }
 
     fun resume() {
+        drawer.audioEnabled = true
         videoItem.audioList.forEach { audio ->
             audio.playID?.let {
                 if (videoItem.usesSharedSoundPool){
@@ -75,6 +76,7 @@ class SVGADrawable(val videoItem: SVGAVideoEntity, val dynamicItem: SVGADynamicE
     }
 
     fun pause() {
+        drawer.audioEnabled = false
         videoItem.audioList.forEach { audio ->
             audio.playID?.let {
                 if (videoItem.usesSharedSoundPool){
@@ -87,6 +89,7 @@ class SVGADrawable(val videoItem: SVGAVideoEntity, val dynamicItem: SVGADynamicE
     }
 
     fun stop() {
+        drawer.audioEnabled = false
         videoItem.audioList.forEach { audio ->
             audio.playID?.let {
                 if (videoItem.usesSharedSoundPool){
@@ -95,6 +98,7 @@ class SVGADrawable(val videoItem: SVGAVideoEntity, val dynamicItem: SVGADynamicE
                     videoItem.soundPool?.stop(it)
                 }
             }
+            audio.playID = null
         }
     }
 
