@@ -1,6 +1,11 @@
 apply plugin: 'com.android.library'
 apply plugin: 'kotlin-android'
+apply plugin: 'maven-publish'
 
+group = 'com.github.TooWhiteT'
+version = providers.gradleProperty('releaseVersion')
+        .orElse(providers.environmentVariable('VERSION'))
+        .orElse('v1.0.0').get()
 
 android {
     namespace 'com.opensource.svgaplayer'
@@ -17,6 +22,11 @@ android {
         minSdkVersion 21
         targetSdkVersion 35
         testInstrumentationRunner 'com.opensource.svgaplayer.SVGAMemoryStressInstrumentation'
+    }
+    publishing {
+        singleVariant('release') {
+            withSourcesJar()
+        }
     }
     buildTypes {
         release {
@@ -52,4 +62,33 @@ dependencies {
     implementation 'com.squareup.okio:okio:3.0.0'
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.robolectric:robolectric:4.14.1'
+}
+
+afterEvaluate {
+    publishing {
+        publications {
+            release(MavenPublication) {
+                from components.release
+                groupId = project.group.toString()
+                artifactId = 'SVGAPlayer-Android-fix'
+                version = project.version.toString()
+                pom {
+                    name = 'SVGAPlayer Android Fix'
+                    description = 'Android SVGA animation player with lifecycle-aware playback and bounded resource usage.'
+                    url = 'https://github.com/TooWhiteT/SVGAPlayer-Android-fix'
+                    licenses {
+                        license {
+                            name = 'The Apache License, Version 2.0'
+                            url = 'https://www.apache.org/licenses/LICENSE-2.0.txt'
+                            distribution = 'repo'
+                        }
+                    }
+                    scm {
+                        url = 'https://github.com/TooWhiteT/SVGAPlayer-Android-fix'
+                        connection = 'scm:git:https://github.com/TooWhiteT/SVGAPlayer-Android-fix.git'
+                    }
+                }
+            }
+        }
+    }
 }

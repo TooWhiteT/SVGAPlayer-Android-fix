@@ -86,12 +86,13 @@ adb -s SERIAL exec-out run-as com.opensource.svgaplayer.test cat files/svga-memo
 
 ### 使用 Gradle 安装
 
-我们的 aar 包托管在 JitPack 上，你需要将 `JitPack.io` 仓库添加到工程 `build.gradle` 中。
+此 fork 的 AAR 发布到 JitPack。将仓库添加到工程的依赖仓库中（新工程通常在 `settings.gradle`）：
 
-```
-allprojects {
+```groovy
+dependencyResolutionManagement {
     repositories {
-        ...
+        google()
+        mavenCentral()
         maven { url 'https://jitpack.io' }
     }
 }
@@ -99,11 +100,17 @@ allprojects {
 
 然后，在应用 `build.gradle` 中添加依赖。
 
-```
-compile 'com.github.yyued:SVGAPlayer-Android:latest'
+```groovy
+implementation 'com.github.TooWhiteT:SVGAPlayer-Android-fix:v1.0.0'
 ```
 
-[![](https://jitpack.io/v/yyued/SVGAPlayer-Android.svg)](https://jitpack.io/#yyued/SVGAPlayer-Android)
+[![](https://jitpack.io/v/TooWhiteT/SVGAPlayer-Android-fix.svg)](https://jitpack.io/#TooWhiteT/SVGAPlayer-Android-fix/v1.0.0)
+
+仓库通过 `jitpack.yml` 使用 JDK 17，仅发布 `library` 的 release AAR、源码 JAR 和依赖元数据。版本号来自 JitPack 的标签/提交版本；本地可通过 `-PreleaseVersion` 指定：
+
+```sh
+./gradlew :library:publishReleasePublicationToMavenLocal -PreleaseVersion=v1.0.0
+```
 
 ### Parser 单例支持
 SVGAParser 单例需要在使用之前初始化，

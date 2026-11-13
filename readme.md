@@ -95,12 +95,13 @@ Here introduce `SVGAPlayer-Android` usage. Wonder exporting usage? Click [here](
 
 ### Install Via Gradle
 
-We host aar file on JitPack, your need to add `JitPack.io` repo `build.gradle`
+This fork publishes its AAR on JitPack. Add the repository to your dependency repositories (usually in `settings.gradle` for new projects):
 
-```
-allprojects {
+```groovy
+dependencyResolutionManagement {
     repositories {
-        ...
+        google()
+        mavenCentral()
         maven { url 'https://jitpack.io' }
     }
 }
@@ -108,11 +109,17 @@ allprojects {
 
 Then, add dependency to app `build.gradle`.
 
-```
-compile 'com.github.yyued:SVGAPlayer-Android:latest'
+```groovy
+implementation 'com.github.TooWhiteT:SVGAPlayer-Android-fix:v1.0.0'
 ```
 
-[![](https://jitpack.io/v/yyued/SVGAPlayer-Android.svg)](https://jitpack.io/#yyued/SVGAPlayer-Android)
+[![](https://jitpack.io/v/TooWhiteT/SVGAPlayer-Android-fix.svg)](https://jitpack.io/#TooWhiteT/SVGAPlayer-Android-fix/v1.0.0)
+
+`jitpack.yml` selects JDK 17 and publishes only the library's release AAR, sources JAR and dependency metadata. The version comes from JitPack's tag/commit version; override it locally with `-PreleaseVersion`:
+
+```sh
+./gradlew :library:publishReleasePublicationToMavenLocal -PreleaseVersion=v1.0.0
+```
 
 ### Static Parser Support
 Perser#shareParser should be init(context) in Application or other Activity.
