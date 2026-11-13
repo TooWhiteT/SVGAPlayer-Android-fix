@@ -4,6 +4,9 @@ import android.animation.Animator
 import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.drawable.Drawable
+import android.net.Uri
 import android.os.Build
 import android.util.AttributeSet
 import android.view.MotionEvent
@@ -43,7 +46,8 @@ open class SVGAImageView @JvmOverloads constructor(
             level = DeprecationLevel.WARNING
     )
     var clearsAfterStop = false
-    var clearsAfterDetached = false
+    /** Release owned resources on detach; opt out only when intentionally retaining a player. */
+    var clearsAfterDetached = true
     var fillMode: FillMode = FillMode.Forward
     var callback: SVGACallback? = null
 
@@ -55,6 +59,9 @@ open class SVGAImageView @JvmOverloads constructor(
     private val mAnimatorUpdateListener = AnimatorUpdateListener(this)
     private var mStartFrame = 0
     private var mEndFrame = 0
+    private var requestGeneration = 0
+    private var cancelDownload: (() -> Unit)? = null
+    private var detached = false
 
     init {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.JELLY_BEAN_MR2) {
@@ -67,7 +74,7 @@ open class SVGAImageView @JvmOverloads constructor(
         val typedArray = context.theme.obtainStyledAttributes(attrs, R.styleable.SVGAImageView, 0, 0)
         loops = typedArray.getInt(R.styleable.SVGAImageView_loopCount, 0)
         clearsAfterStop = typedArray.getBoolean(R.styleable.SVGAImageView_clearsAfterStop, false)
-        clearsAfterDetached = typedArray.getBoolean(R.styleable.SVGAImageView_clearsAfterDetached, false)
+        clearsAfterDetached = typedArray.getBoolean(R.styleable.SVGAImageView_clearsAfterDetached, true)
         mAntiAlias = typedArray.getBoolean(R.styleable.SVGAImageView_antiAlias, true)
         mAutoPlay = typedArray.getBoolean(R.styleable.SVGAImageView_autoPlay, true)
         typedArray.getString(R.styleable.SVGAImageView_fillMode)?.let {
@@ -90,34 +97,39 @@ open class SVGAImageView @JvmOverloads constructor(
     }
 
     private fun parserSource(source: String) {
-        val refImgView = WeakReference<SVGAImageView>(this)
+        cancelPendingLoad()
+        val generation = requestGeneration
+        val ref = WeakReference(this)
         val parser = SVGAParser(context)
-        if (source.startsWith("http://") || source.startsWith("https://")) {
-            parser.decodeFromURL(URL(source), createParseCompletion(refImgView))
-        } else {
-            parser.decodeFromAssets(source, createParseCompletion(refImgView))
-        }
-    }
-
-    private fun createParseCompletion(ref: WeakReference<SVGAImageView>): SVGAParser.ParseCompletion {
-        return object : SVGAParser.ParseCompletion {
+        val metrics = resources.displayMetrics
+        parser.setFrameSize(if (width > 0) width else metrics.widthPixels,
+                if (height > 0) height else metrics.heightPixels)
+        val completion = object : SVGAParser.ParseCompletion {
             override fun onComplete(videoItem: SVGAVideoEntity) {
-                ref.get()?.startAnimation(videoItem)
+                val view = ref.get()
+                if (view == null || view.detached || view.requestGeneration != generation) {
+                    videoItem.clear()
+                    return
+                }
+                view.cancelDownload = null
+                videoItem.antiAlias = view.mAntiAlias
+                view.setVideoItem(videoItem)
+                view.getSVGADrawable()?.scaleType = view.scaleType
+                if (view.mAutoPlay) view.startAnimation()
             }
-
             override fun onError() {}
         }
+        if (source.startsWith("http://") || source.startsWith("https://")) {
+            cancelDownload = parser.decodeFromURL(URL(source), completion)
+        } else {
+            cancelDownload = parser.decodeFromAssetsWithCancel(source, completion)
+        }
     }
 
-    private fun startAnimation(videoItem: SVGAVideoEntity) {
-        this@SVGAImageView.post {
-            videoItem.antiAlias = mAntiAlias
-            setVideoItem(videoItem)
-            getSVGADrawable()?.scaleType = scaleType
-            if (mAutoPlay) {
-                startAnimation()
-            }
-        }
+    private fun cancelPendingLoad() {
+        requestGeneration++
+        cancelDownload?.invoke()
+        cancelDownload = null
     }
 
     fun startAnimation() {
@@ -135,6 +147,7 @@ open class SVGAImageView @JvmOverloads constructor(
         setupDrawable()
         mStartFrame = Math.max(0, range?.location ?: 0)
         val videoItem = drawable.videoItem
+        if (videoItem.isCleared || videoItem.frames <= 0 || videoItem.FPS <= 0) return
         mEndFrame = Math.min(videoItem.frames - 1, ((range?.location ?: 0) + (range?.length ?: Int.MAX_VALUE) - 1))
         val animator = ValueAnimator.ofInt(mStartFrame, mEndFrame)
         animator.interpolator = LinearInterpolator()
@@ -210,10 +223,51 @@ open class SVGAImageView @JvmOverloads constructor(
     }
 
     fun clear() {
-        getSVGADrawable()?.cleared = true
-        getSVGADrawable()?.clear()
-        // 清除对 drawable 的引用
+        cancelPendingLoad()
+        stopAnimation(false)
         setImageDrawable(null)
+        callback = null
+        mItemClickAreaListener = null
+    }
+
+    override fun setImageDrawable(drawable: Drawable?) {
+        // 即使当前与新值都为 null，显式设置图片也应取消尚未交付的加载。
+        cancelPendingLoad()
+        val previous = getSVGADrawable()
+        if (previous !== drawable) {
+            stopAnimation(false)
+            if (previous != null) {
+                val next = drawable as? SVGADrawable
+                previous.clear(releaseVideo = previous.videoItem !== next?.videoItem,
+                        releaseDynamic = previous.dynamicItem !== next?.dynamicItem)
+            }
+        }
+        super.setImageDrawable(drawable)
+    }
+
+    /**
+     * ImageView.setImageBitmap 会先将父类的 mDrawable 置空，再调用 setImageDrawable；
+     * resource/URI 分支则可能直接更新父类字段。因此必须在进入父类实现前释放旧素材。
+     */
+    private fun prepareImageReplacement() {
+        cancelPendingLoad()
+        stopAnimation(false)
+        if (getSVGADrawable() != null) setImageDrawable(null)
+    }
+
+    override fun setImageBitmap(bitmap: Bitmap?) {
+        prepareImageReplacement()
+        super.setImageBitmap(bitmap)
+    }
+
+    override fun setImageResource(resId: Int) {
+        prepareImageReplacement()
+        super.setImageResource(resId)
+    }
+
+    override fun setImageURI(uri: Uri?) {
+        prepareImageReplacement()
+        super.setImageURI(uri)
     }
 
     fun pauseAnimation() {
@@ -226,9 +280,12 @@ open class SVGAImageView @JvmOverloads constructor(
     }
 
     fun stopAnimation(clear: Boolean) {
-        mAnimator?.cancel()
-        mAnimator?.removeAllListeners()
-        mAnimator?.removeAllUpdateListeners()
+        val animator = mAnimator
+        mAnimator = null
+        animator?.removeAllListeners()
+        animator?.removeAllUpdateListeners()
+        animator?.cancel()
+        isAnimating = false
         getSVGADrawable()?.stop()
         getSVGADrawable()?.cleared = clear
     }
@@ -290,7 +347,14 @@ open class SVGAImageView @JvmOverloads constructor(
         return super.onTouchEvent(event)
     }
 
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        detached = false
+    }
+
     override fun onDetachedFromWindow() {
+        detached = true
+        cancelPendingLoad()
         super.onDetachedFromWindow()
         stopAnimation(clearsAfterDetached)
         if (clearsAfterDetached) {
@@ -301,19 +365,19 @@ open class SVGAImageView @JvmOverloads constructor(
     private class AnimatorListener(view: SVGAImageView) : Animator.AnimatorListener {
         private val weakReference = WeakReference<SVGAImageView>(view)
 
-        override fun onAnimationRepeat(animation: Animator?) {
+        override fun onAnimationRepeat(animation: Animator) {
             weakReference.get()?.callback?.onRepeat()
         }
 
-        override fun onAnimationEnd(animation: Animator?) {
+        override fun onAnimationEnd(animation: Animator) {
             weakReference.get()?.onAnimationEnd(animation)
         }
 
-        override fun onAnimationCancel(animation: Animator?) {
+        override fun onAnimationCancel(animation: Animator) {
             weakReference.get()?.isAnimating = false
         }
 
-        override fun onAnimationStart(animation: Animator?) {
+        override fun onAnimationStart(animation: Animator) {
             weakReference.get()?.isAnimating = true
         }
     } // end of AnimatorListener
@@ -322,7 +386,7 @@ open class SVGAImageView @JvmOverloads constructor(
     private class AnimatorUpdateListener(view: SVGAImageView) : ValueAnimator.AnimatorUpdateListener {
         private val weakReference = WeakReference<SVGAImageView>(view)
 
-        override fun onAnimationUpdate(animation: ValueAnimator?) {
+        override fun onAnimationUpdate(animation: ValueAnimator) {
             weakReference.get()?.onAnimatorUpdate(animation)
         }
     } // end of AnimatorUpdateListener

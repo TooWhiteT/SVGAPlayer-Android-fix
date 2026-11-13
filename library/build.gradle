@@ -3,13 +3,18 @@ apply plugin: 'kotlin-android'
 
 
 android {
-    compileSdkVersion 28
-    defaultConfig {
-        minSdkVersion 14
-        targetSdkVersion 28
+    namespace 'com.opensource.svgaplayer'
+    compileSdkVersion 35
+    testOptions {
+        unitTests.includeAndroidResources = true
     }
-    compileOptions {
-        kotlinOptions.freeCompilerArgs += ['-module-name', "com.opensource.svgaplayer"]
+    sourceSets {
+        test.resources.srcDir "${rootProject.projectDir}/app/src/main/assets"
+        test.assets.srcDir "${rootProject.projectDir}/app/src/main/assets"
+    }
+    defaultConfig {
+        minSdkVersion 21
+        targetSdkVersion 35
     }
     buildTypes {
         release {
@@ -31,7 +36,16 @@ android {
     }
 }
 
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_1_8
+        moduleName = 'com.opensource.svgaplayer'
+    }
+}
 
 dependencies {
     implementation 'com.squareup.wire:wire-runtime:4.4.1'
+    implementation 'com.squareup.okio:okio:3.0.0'
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.robolectric:robolectric:4.14.1'
 }

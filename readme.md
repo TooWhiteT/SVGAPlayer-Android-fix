@@ -21,6 +21,30 @@ If wonder more information, go to this [website](http://svga.io/).
 
 ## Usage
 
+### Build locally
+
+Use JDK 21 and select it as the Gradle JDK in Android Studio. The Gradle Wrapper uses Gradle 8.7, Android Gradle Plugin 8.6.1, and Kotlin 2.1.21.
+
+Install Android SDK Platform 35 and Build Tools 34.0.0, and set `sdk.dir` in the root `local.properties` file. Both compileSdk and targetSdk are 35; the minimum supported Android version is 5.0 (API 21).
+
+```sh
+./gradlew :app:assembleDebug :library:assembleRelease
+```
+
+The sample APK is generated at `app/build/outputs/apk/debug/app-debug.apk`, and the library AAR at `library/build/outputs/aar/library-release.aar`. Gradle runs on JDK 21; Java and Kotlin sources target Java 8.
+
+### Large assets and cleanup
+
+Images are decoded with bounds checks, alpha preservation, and sampling. A bitmap is limited to 16 MiB (or 1/16 of the app heap), and a video's textures to 32 MiB (or 1/8 of the heap), whichever is smaller; maximum decoded dimension is 4096 pixels. Large assets can lose resolution. Network replacement images have equivalent per-image and aggregate limits; callers remain responsible for the size of directly supplied Bitmaps. Unloadable video assets report `ParseCompletion.onError()`.
+
+Downloads are limited to 32 MiB or 1/8 of the heap, and expanded data to 64 MiB or 1/4 of the heap. The default executor runs two tasks with a queue of 32. Repeated audio events share samples; each video supports up to 32 distinct audio segments. Audio preparation has a 30-second fallback to deliver the video instead of retaining completion callbacks indefinitely.
+
+All parser instances share a limit of two undelivered videos, covering parsing, audio preparation, and main-thread delivery, even with a custom executor. Workers wait for capacity before reading assets; delivery, failure, or completed cancellation cleanup returns capacity. Cancellation removes pending delivery messages and clears their videos. Results without completion callbacks are cleared immediately. Delivered videos belong to the caller and are outside this limit.
+
+`SVGAImageView.clearsAfterDetached` now defaults to `true`. Set it to `false` only when retaining a player for reattachment, and call `clear()` when finally disposing it. Replacing video or calling `setImageDrawable`, `setImageBitmap`, `setImageResource`, or `setImageURI` stops the old animation, releases the old drawable, and cancels pending loads. Coordinate cleanup when sharing video/dynamic entities between players. `clear()` stops animation, drops callbacks and caches, and invalidates pending dynamic image downloads. Published/caller-supplied Bitmaps are not forcibly recycled. The original `movieItem` is dropped during preparation. Call `SVGASoundManager.release()` when global audio is no longer needed; it releases the native pool and supports later initialization.
+
+Run regression checks with `./gradlew :library:testDebugUnitTest`; bitmap/mask tests use Robolectric native graphics.
+
 Here introduce `SVGAPlayer-Android` usage. Wonder exporting usage? Click [here](http://svga.io/designer.html).
 
 ### Install Via Gradle

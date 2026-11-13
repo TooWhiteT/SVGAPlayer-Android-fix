@@ -43,7 +43,16 @@ open internal class SGVADrawer(val videoItem: SVGAVideoEntity) {
     }
 
     internal fun releaseFrameSprites(sprites: List<SVGADrawerSprite>) {
-        sprites.forEach { spritePool.release(it) }
+        sprites.forEach {
+            it._frameEntity = null
+            it._imageKey = null
+            it._matteKey = null
+            spritePool.release(it)
+        }
+    }
+
+    protected fun clearSpritePool() {
+        while (spritePool.acquire() != null) { /* Drop pooled frame references. */ }
     }
 
     open fun drawFrame(canvas : Canvas, frameIndex: Int, scaleType: ImageView.ScaleType) {

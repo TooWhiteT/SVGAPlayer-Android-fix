@@ -10,6 +10,32 @@
 
 ## 用法
 
+### 本地构建
+
+使用 JDK 21，Android Studio 中的 Gradle JDK 也选择 JDK 21。项目通过 Gradle Wrapper 使用 Gradle 8.7、Android Gradle Plugin 8.6.1 和 Kotlin 2.1.21。
+
+Android SDK 需要安装 Android 15（API 35）和 Build Tools 34.0.0，并在项目根目录的 `local.properties` 中配置 `sdk.dir`。compileSdk 和 targetSdk 均为 35，最低支持 Android 5.0（API 21）。
+
+```sh
+./gradlew :app:assembleDebug :library:assembleRelease
+```
+
+示例 APK 输出到 `app/build/outputs/apk/debug/app-debug.apk`，库 AAR 输出到 `library/build/outputs/aar/library-release.aar`。Gradle 使用 JDK 21 运行，Java/Kotlin 编译目标为 Java 8。
+
+### 大素材与资源释放
+
+位图始终先读取尺寸，再按显示尺寸和内存预算采样，保留透明通道。默认单张贴图最多占 16 MiB，单个视频的贴图总量最多 32 MiB；低内存设备还会分别收紧到应用堆上限的 1/16、1/8。单边最多 4096 像素。超大素材可能降低分辨率，无法容纳的素材通过 `ParseCompletion.onError()` 报错。动态网络图片同样有单张与总量预算，调用方直接传入的 Bitmap 仍由调用方控制大小。
+
+下载上限为 32 MiB（同时受堆上限的 1/8 约束），解压数据上限为 64 MiB（同时受堆上限的 1/4 约束）。默认最多同时执行 2 个后台任务，等待队列最多 32 个任务。重复音频事件复用采样，每个视频最多加载 32 个不同音频片段。音频准备最多等待 30 秒，超时后继续交付视频，避免无限保留解析回调。
+
+所有 Parser 实例合计最多保留 2 个尚未交付的视频，覆盖解析、音频准备及主线程待交付阶段，即使替换线程池也生效。额度不足时后台会在读取素材前等待；交付、失败或取消清理完成后归还额度。取消会移除待交付消息并释放其素材，无完成回调的结果直接清理。已交付的视频由调用方管理，不计入此限制。
+
+`SVGAImageView.clearsAfterDetached` 默认改为 `true`，移出窗口时释放素材并取消加载。需要保留播放器供重新挂载时，可显式设为 `false`，并在最终不再使用时调用 `clear()`。替换视频或通过 `setImageDrawable`、`setImageBitmap`、`setImageResource`、`setImageURI` 设置图片时，会停止旧动画、释放旧 Drawable 并取消待完成的加载；共享同一个视频或动态实体时，仍须协调多个播放器的释放时机。
+
+`clear()` 是最终释放操作：停止动画、断开回调、清理素材和绘制缓存。动态实体清理后会拒绝旧下载结果。已经发布或由调用方传入的 Bitmap 不会被强制 `recycle()`，以保护共享使用。原始 `movieItem` 在准备完成前即从视频实体中移除。全局音频不再使用时调用 `SVGASoundManager.release()`，该方法会真正释放 SoundPool，可再次 `init()`。
+
+回归测试：`./gradlew :library:testDebugUnitTest`，其中遮罩和 PNG 解码使用 Robolectric 原生图形模式。
+
 我们在这里介绍 `SVGAPlayer-Android` 的用法。想要知道如何导出动画，点击[这里](http://svga.io/designer.html)。
 
 ### 使用 Gradle 安装

@@ -11,6 +11,7 @@ import android.media.SoundPool
 import android.os.Build
 import com.opensource.svgaplayer.utils.log.LogUtils
 import java.io.FileDescriptor
+import java.lang.ref.WeakReference
 
 /**
  * Author : llk
@@ -28,8 +29,12 @@ object SVGASoundManager {
     private val TAG = SVGASoundManager::class.java.simpleName
 
     private var soundPool: SoundPool? = null
+    private var generation = 0L
 
-    private val soundCallBackMap: MutableMap<Int, SVGASoundCallBack> = mutableMapOf()
+    @Synchronized
+    internal fun poolGeneration(): Long? = if (soundPool == null) null else generation
+
+    private val soundCallBackMap: MutableMap<Int, WeakReference<SVGASoundCallBack>> = mutableMapOf()
 
     /**
      * 音量设置，范围在 [0, 1] 之间
@@ -52,27 +57,36 @@ object SVGASoundManager {
         init(20)
     }
 
+    @Synchronized
     fun init(maxStreams: Int) {
         LogUtils.debug(TAG, "**************** init **************** $maxStreams")
         if (soundPool != null) {
             return
         }
-        soundPool = getSoundPool(maxStreams)
-        soundPool?.setOnLoadCompleteListener { _, soundId, status ->
-            LogUtils.debug(TAG, "SoundPool onLoadComplete soundId=$soundId status=$status")
-            if (status == 0) { //加载该声音成功
-                if (soundCallBackMap.containsKey(soundId)) {
-                    soundCallBackMap[soundId]?.onComplete()
+        val pool = getSoundPool(maxStreams)
+        generation++
+        soundPool = pool
+        pool.setOnLoadCompleteListener { source, soundId, status ->
+            val callback = synchronized(this) {
+                if (soundPool !== source) return@setOnLoadCompleteListener
+                val target = soundCallBackMap[soundId]?.get()
+                if (target == null || status != 0) {
+                    soundCallBackMap.remove(soundId)
+                    source.unload(soundId)
                 }
+                target
             }
+            // Failed loads also finish preparation; the video must not wait forever.
+            callback?.onComplete()
         }
     }
 
+    @Synchronized
     fun release() {
-        LogUtils.debug(TAG, "**************** release ****************")
-        if (soundCallBackMap.isNotEmpty()) {
-            soundCallBackMap.clear()
-        }
+        soundCallBackMap.clear()
+        soundPool?.setOnLoadCompleteListener(null)
+        soundPool?.release()
+        soundPool = null
     }
 
     /**
@@ -92,20 +106,30 @@ object SVGASoundManager {
         }
 
         if (entity == null) {
-            this.volume = volume
-            val iterator = soundCallBackMap.entries.iterator()
-            while (iterator.hasNext()) {
-                val e = iterator.next()
-                e.value.onVolumeChange(volume)
+            val callbacks = synchronized(this) {
+                this.volume = volume
+                val values = mutableListOf<SVGASoundCallBack>()
+                val iterator = soundCallBackMap.iterator()
+                while (iterator.hasNext()) {
+                    val (id, reference) = iterator.next()
+                    val callback = reference.get()
+                    if (callback == null) {
+                        soundPool?.unload(id)
+                        iterator.remove()
+                    } else if (values.none { it === callback }) values.add(callback)
+                }
+                values
             }
+            callbacks.forEach { it.onVolumeChange(volume) }
             return
         }
 
-        val soundPool = soundPool ?: return
-
-        entity.audioList.forEach { audio ->
-            val streamId = audio.playID ?: return
-            soundPool.setVolume(streamId, volume, volume)
+        synchronized(this) {
+            val pool = soundPool ?: return
+            if (!entity.usesSharedSoundPool) return
+            entity.audioList.forEach { audio ->
+                audio.playID?.let { pool.setVolume(it, volume, volume) }
+            }
         }
     }
 
@@ -114,6 +138,7 @@ object SVGASoundManager {
      * 如果没有初始化，就使用原来SvgaPlayer库的音频加载逻辑。
      * @return true 则已初始化， 否则为 false
      */
+    @Synchronized
     internal fun isInit(): Boolean {
         return soundPool != null
     }
@@ -137,6 +162,7 @@ object SVGASoundManager {
         SoundPool(maxStreams, AudioManager.STREAM_MUSIC, 0)
     }
 
+    @Synchronized
     internal fun load(callBack: SVGASoundCallBack?,
                       fd: FileDescriptor?,
                       offset: Long,
@@ -144,26 +170,36 @@ object SVGASoundManager {
                       priority: Int): Int {
         if (!checkInit()) return -1
 
+        val stale = soundCallBackMap.iterator()
+        while (stale.hasNext()) {
+            val (id, reference) = stale.next()
+            if (reference.get() == null) {
+                soundPool?.unload(id)
+                stale.remove()
+            }
+        }
+
         val soundId = soundPool!!.load(fd, offset, length, priority)
 
         LogUtils.debug(TAG, "load soundId=$soundId callBack=$callBack")
 
-        if (callBack != null && !soundCallBackMap.containsKey(soundId)) {
-            soundCallBackMap[soundId] = callBack
+        if (callBack != null && soundId > 0) {
+            soundCallBackMap[soundId] = WeakReference(callBack)
         }
         return soundId
     }
 
-    internal fun unload(soundId: Int) {
-        if (!checkInit()) return
-
-        LogUtils.debug(TAG, "unload soundId=$soundId")
-
-        soundPool!!.unload(soundId)
-
+    @Synchronized
+    internal fun unload(soundId: Int, owner: SVGASoundCallBack? = null) {
+        // A released/re-created SoundPool can reuse IDs. An old video must not unload
+        // a different video's sample in the new pool.
+        val reference = soundCallBackMap[soundId] ?: return
+        if (owner != null && reference.get() !== owner) return
         soundCallBackMap.remove(soundId)
+        soundPool?.unload(soundId)
     }
 
+    @Synchronized
     internal fun play(soundId: Int): Int {
         if (!checkInit()) return -1
 
@@ -171,6 +207,7 @@ object SVGASoundManager {
         return soundPool!!.play(soundId, volume, volume, 1, 0, 1.0f)
     }
 
+    @Synchronized
     internal fun stop(soundId: Int) {
         if (!checkInit()) return
 
@@ -178,6 +215,7 @@ object SVGASoundManager {
         soundPool!!.stop(soundId)
     }
 
+    @Synchronized
     internal fun resume(soundId: Int) {
         if (!checkInit()) return
 
@@ -185,6 +223,7 @@ object SVGASoundManager {
         soundPool!!.resume(soundId)
     }
 
+    @Synchronized
     internal fun pause(soundId: Int) {
         if (!checkInit()) return
 

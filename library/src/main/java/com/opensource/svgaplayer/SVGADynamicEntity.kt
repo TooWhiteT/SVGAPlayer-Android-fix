@@ -1,7 +1,15 @@
 package com.opensource.svgaplayer
 
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
+import android.os.Handler
+import android.os.Looper
+import com.opensource.svgaplayer.bitmap.SVGABitmapByteArrayDecoder
+import com.opensource.svgaplayer.utils.SVGAIO
+import com.opensource.svgaplayer.utils.SVGAMemoryLimits
+import com.opensource.svgaplayer.utils.log.LogUtils
+import java.lang.ref.WeakReference
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Future
 import android.graphics.Canvas
 import android.text.BoringLayout
 import android.text.StaticLayout
@@ -13,6 +21,56 @@ import java.net.URL
  * Created by cuiminghui on 2017/3/30.
  */
 class SVGADynamicEntity {
+
+    private class ImageRequest {
+        @Volatile var cancelled = false
+        @Volatile var connection: HttpURLConnection? = null
+        @Volatile var task: Future<*>? = null
+        fun cancel() {
+            cancelled = true
+            connection?.disconnect()
+            task?.cancel(true)
+        }
+    }
+
+    private val imageRequests = ConcurrentHashMap<String, ImageRequest>()
+    private val imageReservations = HashMap<ImageRequest, Long>()
+
+    @Synchronized
+    private fun reserveImage(request: ImageRequest, key: String): Long {
+        if (request.cancelled || imageRequests[key] !== request) return 0
+        val retained = dynamicImage.values.sumOf { if (it.isRecycled) 0L else it.allocationByteCount.toLong() }
+        val available = SVGAMemoryLimits.videoBitmapBytes - retained - imageReservations.values.sum()
+        val budget = minOf(SVGAMemoryLimits.bitmapBytes, available)
+        if (budget >= 4) imageReservations[request] = budget
+        return budget
+    }
+
+    @Synchronized
+    private fun finishImage(request: ImageRequest, key: String, bitmap: Bitmap): Boolean {
+        imageReservations.remove(request)
+        if (request.cancelled || !imageRequests.remove(key, request)) return false
+        val retained = dynamicImage.filterKeys { it != key }.values.sumOf {
+            if (it.isRecycled) 0L else it.allocationByteCount.toLong()
+        }
+        if (retained + bitmap.allocationByteCount > SVGAMemoryLimits.videoBitmapBytes) return false
+        dynamicImage[key] = bitmap
+        isTextDirty = true
+        return true
+    }
+
+    @Synchronized
+    private fun discardImage(request: ImageRequest, key: String) {
+        imageReservations.remove(request)
+        imageRequests.remove(key, request)
+    }
+
+    @Synchronized
+    private fun decodedImage(request: ImageRequest, bitmap: Bitmap) {
+        if (imageReservations.containsKey(request)) {
+            imageReservations[request] = bitmap.allocationByteCount.toLong()
+        }
+    }
 
     internal var dynamicHidden: HashMap<String, Boolean> = hashMapOf()
 
@@ -41,32 +99,63 @@ class SVGADynamicEntity {
         this.dynamicHidden.put(forKey, value)
     }
 
+    @Synchronized
     fun setDynamicImage(bitmap: Bitmap, forKey: String) {
-        this.dynamicImage.put(forKey, bitmap)
+        imageRequests.remove(forKey)?.cancel()
+        dynamicImage[forKey] = bitmap
+        isTextDirty = true
     }
 
     fun setDynamicImage(url: String, forKey: String) {
-        val handler = android.os.Handler()
-        SVGAParser.threadPoolExecutor.execute {
-            (URL(url).openConnection() as? HttpURLConnection)?.let {
-                try {
-                    it.connectTimeout = 20 * 1000
-                    it.requestMethod = "GET"
-                    it.connect()
-                    it.inputStream.use { stream ->
-                        BitmapFactory.decodeStream(stream)?.let {
-                            handler.post { setDynamicImage(it, forKey) }
-                        }
-                    }
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                } finally {
-                    try {
-                        it.disconnect()
-                    } catch (disconnectException: Throwable) {
-                        // ignored here
+        val request = ImageRequest()
+        imageRequests.put(forKey, request)?.cancel()
+        val owner = WeakReference(this)
+        try {
+            request.task = SVGAParser.threadPoolExecutor.submit { downloadImage(owner, request, url, forKey) }
+            if (request.cancelled) request.task?.cancel(true)
+        } catch (error: Exception) {
+            imageRequests.remove(forKey, request)
+            request.cancel()
+            LogUtils.error("SVGADynamicEntity", "Image request rejected", error)
+        }
+    }
+
+    companion object {
+        private fun downloadImage(owner: WeakReference<SVGADynamicEntity>, request: ImageRequest,
+                                  url: String, key: String) {
+            var connection: HttpURLConnection? = null
+            var posted = false
+            try {
+                if (request.cancelled || owner.get() == null) return
+                val budget = owner.get()?.reserveImage(request, key) ?: return
+                if (budget < 4) return
+                connection = URL(url).openConnection() as HttpURLConnection
+                request.connection = connection
+                if (request.cancelled) return
+                connection.connectTimeout = 20_000
+                connection.readTimeout = 20_000
+                connection.connect()
+                val bytes = connection.inputStream.use { SVGAIO.readBytes(it, SVGAMemoryLimits.inputBytes) }
+                if (request.cancelled) return
+                val bitmap = SVGABitmapByteArrayDecoder.decodeBitmapFrom(bytes, 0, 0, budget) ?: return
+                owner.get()?.decodedImage(request, bitmap)
+                val accepted = Handler(Looper.getMainLooper()).post {
+                    val entity = owner.get()
+                    if (entity == null || !entity.finishImage(request, key, bitmap)) {
+                        // The bitmap was never handed to a caller or used in a display list.
+                        bitmap.recycle()
                     }
                 }
+                posted = accepted
+                if (!accepted) bitmap.recycle()
+            } catch (error: Exception) {
+                if (!request.cancelled) LogUtils.error("SVGADynamicEntity", "Image download failed", error)
+            } catch (error: OutOfMemoryError) {
+                LogUtils.error("SVGADynamicEntity", "Insufficient memory for dynamic image", error)
+            } finally {
+                request.connection = null
+                connection?.disconnect()
+                if (!posted) owner.get()?.discardImage(request, key)
             }
         }
     }
@@ -137,7 +226,10 @@ class SVGADynamicEntity {
         this.dynamicDrawerSized.put(forKey, drawer)
     }
 
+    @Synchronized
     fun clearDynamicObjects() {
+        imageRequests.values.forEach { it.cancel() }
+        imageRequests.clear()
         this.isTextDirty = true
         this.dynamicHidden.clear()
         this.dynamicImage.clear()
