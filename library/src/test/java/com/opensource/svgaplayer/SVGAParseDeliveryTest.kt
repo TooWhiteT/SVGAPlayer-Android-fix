@@ -166,18 +166,18 @@ class SVGAParseDeliveryTest {
     @GraphicsMode(GraphicsMode.Mode.NATIVE)
     fun pausedMainThreadBackpressuresFurtherParsing() {
         val previous = SVGAParser.threadPoolExecutor
-        val executor = ThreadPoolExecutor(1, 1, 0, TimeUnit.MILLISECONDS, LinkedBlockingQueue())
-        val parsed = LinkedBlockingQueue<Int>()
+        val parsed = LinkedBlockingQueue<Unit>()
+        val executor = object : ThreadPoolExecutor(1, 1, 0, TimeUnit.MILLISECONDS, LinkedBlockingQueue()) {
+            override fun afterExecute(task: Runnable, error: Throwable?) { parsed.add(Unit) }
+        }
         var delivered = 0
         SVGAParser.setThreadPoolExecutor(executor)
         try {
             val parser = SVGAParser(RuntimeEnvironment.getApplication())
             val bytes = requireNotNull(javaClass.classLoader?.getResourceAsStream("rose_2.0.0.svga")).use { it.readBytes() }
             repeat(10) { index ->
-                val input = object : ByteArrayInputStream(bytes) {
-                    override fun close() { super.close(); parsed.add(index) }
-                }
-                parser.decodeFromInputStream(input, "backpressure_$index", receiver({ delivered++; it.clear() }), true)
+                parser.decodeFromInputStream(ByteArrayInputStream(bytes), "backpressure_$index",
+                        receiver({ delivered++; it.clear() }), true)
             }
             repeat(SVGAMemoryLimits.MAX_PENDING_VIDEOS) {
                 assertNotNull(parsed.poll(10, TimeUnit.SECONDS))

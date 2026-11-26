@@ -8,7 +8,6 @@ import android.widget.ImageView
 import com.opensource.svgaplayer.bitmap.BitmapSampleSizeCalculator
 import com.opensource.svgaplayer.utils.SVGAMemoryLimits
 import com.opensource.svgaplayer.SVGADynamicEntity
-import com.opensource.svgaplayer.SVGASoundManager
 import com.opensource.svgaplayer.SVGAVideoEntity
 import com.opensource.svgaplayer.entities.SVGAVideoShapeEntity
 
@@ -17,8 +16,6 @@ import com.opensource.svgaplayer.entities.SVGAVideoShapeEntity
  */
 
 internal class SVGACanvasDrawer(videoItem: SVGAVideoEntity, val dynamicItem: SVGADynamicEntity) : SGVADrawer(videoItem) {
-
-    var audioEnabled = true
 
     private val sharedValues = ShareValues()
     private val drawTextCache = LinkedHashMap<String, Bitmap>(16, 0.75f, true)
@@ -34,7 +31,6 @@ internal class SVGACanvasDrawer(videoItem: SVGAVideoEntity, val dynamicItem: SVG
 
     override fun drawFrame(canvas: Canvas, frameIndex: Int, scaleType: ImageView.ScaleType) {
         super.drawFrame(canvas, frameIndex, scaleType)
-        if (audioEnabled) playAudio(frameIndex)
         pathCache.onSizeChanged(canvas)
         val sprites = requestFrameSprites(frameIndex)
         try {
@@ -87,35 +83,6 @@ internal class SVGACanvasDrawer(videoItem: SVGAVideoEntity, val dynamicItem: SVG
         mattePaint.shader = null
         val paint = sharedValues.sharedPaint().apply { isFilterBitmap = true }
         canvas.drawBitmap(sharedValues.sharedLayerBitmap(), null, bounds, paint)
-    }
-
-    private fun playAudio(frameIndex: Int) {
-        this.videoItem.audioList.forEach { audio ->
-            if (audio.startFrame == frameIndex) {
-                if (videoItem.usesSharedSoundPool) {
-                    audio.soundID?.let { soundID ->
-                        audio.playID = SVGASoundManager.play(soundID)
-                    }
-                } else {
-                    this.videoItem.soundPool?.let { soundPool ->
-                        audio.soundID?.let { soundID ->
-                            audio.playID = soundPool.play(soundID, 1.0f, 1.0f, 1, 0, 1.0f)
-                        }
-                    }
-                }
-
-            }
-            if (audio.endFrame <= frameIndex) {
-                audio.playID?.let {
-                    if (videoItem.usesSharedSoundPool) {
-                        SVGASoundManager.stop(it)
-                    } else {
-                        this.videoItem.soundPool?.stop(it)
-                    }
-                }
-                audio.playID = null
-            }
-        }
     }
 
     private fun shareFrameMatrix(transform: Matrix): Matrix {

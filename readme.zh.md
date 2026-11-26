@@ -65,6 +65,8 @@ View 移出窗口或 owner 收到 `ON_DESTROY` 时，会取消 View 自己发起
 
 所有 Parser 实例合计最多保留 2 个尚未交付的视频，覆盖解析、音频准备及主线程待交付阶段，即使替换线程池也生效。额度不足时后台会在读取素材前等待；交付、失败或取消清理完成后归还额度。取消会移除待交付消息并释放其素材，无完成回调的结果直接清理。已交付的视频由调用方管理，不计入此限制。
 
+用 `val cancel = parser.decodeFromInputStreamWithCancel(input, key, callback, closeInputStream = true)` 解析可能阻塞的输入流，页面退出时调用 `cancel()`。两个输入流接口在 `closeInputStream = true` 时都接管输入流。单次读取阻塞 20 秒后，解析器调用 `close()` 唤醒读取，并通过 `onError()` 报错。自定义流的 `close()` 需要能唤醒阻塞的 `read()`。主动取消会关闭接管的流并撤下待交付的回调。若保留流的所有权（默认值 `false`），调用方负责设置读取超时，或在取消时关闭流以唤醒忽略中断的读取。
+
 `SVGAImageView.clearsAfterDetached` 默认改为 `true`，移出窗口时释放素材并取消加载。需要保留播放器供重新挂载时，可显式设为 `false`，并在最终不再使用时调用 `clear()`。替换视频或通过 `setImageDrawable`、`setImageBitmap`、`setImageResource`、`setImageURI` 设置图片时，会停止旧动画、释放旧 Drawable 并取消待完成的加载；共享同一个视频或动态实体时，仍须协调多个播放器的释放时机。
 
 `clear()` 是最终释放操作：停止动画、断开回调、清理素材和绘制缓存。动态图片清理或同 key 替换时，会移除待交付消息，并立即回收尚未发布的 Bitmap；正在解码的请求保留预算到工作线程退出，防止提前归还额度导致并发超额分配。已经发布或由调用方传入的 Bitmap 不会被强制 `recycle()`，以保护共享使用。原始 `movieItem` 在准备完成前即从视频实体中移除。全局音频不再使用时调用 `SVGASoundManager.release()`，该方法会真正释放 SoundPool，可再次 `init()`。

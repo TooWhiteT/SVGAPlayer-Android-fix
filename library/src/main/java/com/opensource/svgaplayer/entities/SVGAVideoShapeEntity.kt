@@ -13,6 +13,7 @@ import java.util.*
  * Created by cuiminghui on 2017/2/22.
  */
 
+/** Kept for callers of getSharedPath(). Rendered contours belong to their shape. */
 val sharedPath = Path()
 
 internal class SVGAVideoShapeEntity {
@@ -321,10 +322,10 @@ internal class SVGAVideoShapeEntity {
         if (this.shapePath != null) {
             return
         }
-        sharedPath.reset()
+        val path = Path()
         if (this.type == Type.shape) {
             (this.args?.get("d") as? String)?.let {
-                SVGAPathEntity(it).buildPath(sharedPath)
+                SVGAPathEntity(it).buildPath(path)
             }
         } else if (this.type == Type.ellipse) {
             val xv = this.args?.get("x") as? Number ?: return
@@ -335,7 +336,7 @@ internal class SVGAVideoShapeEntity {
             val y = yv.toFloat()
             val rx = rxv.toFloat()
             val ry = ryv.toFloat()
-            sharedPath.addOval(RectF(x - rx, y - ry, x + rx, y + ry), Path.Direction.CW)
+            path.addOval(RectF(x - rx, y - ry, x + rx, y + ry), Path.Direction.CW)
         } else if (this.type == Type.rect) {
             val xv = this.args?.get("x") as? Number ?: return
             val yv = this.args?.get("y") as? Number ?: return
@@ -347,10 +348,9 @@ internal class SVGAVideoShapeEntity {
             val width = wv.toFloat()
             val height = hv.toFloat()
             val cornerRadius = crv.toFloat()
-            sharedPath.addRoundRect(RectF(x, y, x + width, y + height), cornerRadius, cornerRadius, Path.Direction.CW)
+            path.addRoundRect(RectF(x, y, x + width, y + height), cornerRadius, cornerRadius, Path.Direction.CW)
         }
-        this.shapePath = Path()
-        this.shapePath?.set(sharedPath)
+        this.shapePath = path
     }
 
 }

@@ -6,10 +6,12 @@ import com.opensource.svgaplayer.utils.SVGAIO
 import com.opensource.svgaplayer.utils.SVGAJsonDecoder
 import com.opensource.svgaplayer.utils.SVGAMemoryLimits
 import com.opensource.svgaplayer.utils.log.LogUtils
+import okio.AsyncTimeout
 import java.io.*
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -24,6 +26,7 @@ private val fileLock = Any()
 class SVGAParser(context: Context?) {
     private var mContext = context?.applicationContext
     @Volatile private var frameSize = 0 to 0
+    internal var ownedInputReadTimeoutMillis = 20_000L
 
     init {
         SVGACache.onCreate(mContext)
@@ -90,9 +93,14 @@ class SVGAParser(context: Context?) {
 
         // Decode on the same worker as the download. Queuing a second task would retain
         // complete downloaded byte arrays behind all the other pending downloads.
-        internal var threadPoolExecutor = ThreadPoolExecutor(2, 2, 0, TimeUnit.MILLISECONDS,
+        @Volatile
+        internal var threadPoolExecutor = ThreadPoolExecutor(2, 2, 30, TimeUnit.SECONDS,
                 ArrayBlockingQueue(32)) { runnable ->
             Thread(runnable, "SVGAParser-Thread-${threadNum.getAndIncrement()}")
+        }.apply {
+            // A worker may still be submitting to the old pool during a swap. Let it drain
+            // and retire on idle, leaving caller-supplied executors under their owner's control.
+            allowCoreThreadTimeOut(true)
         }
 
         fun setThreadPoolExecutor(executor: ThreadPoolExecutor) {
@@ -145,7 +153,7 @@ class SVGAParser(context: Context?) {
                 val cancellation = fileDownloader.resume(url, { input ->
                     runRequest(request) { decodeStream(input, key, request, playCallback, size) }
                 }, request::fail)
-                request.setDownloadCancellation(cancellation)
+                request.setSourceCancellation(cancellation)
             }
         } catch (error: Exception) {
             request.fail(error)
@@ -164,20 +172,84 @@ class SVGAParser(context: Context?) {
         }
     }
 
+    /** See [decodeFromInputStreamWithCancel] for stream ownership and read timeouts. */
     fun decodeFromInputStream(inputStream: InputStream, cacheKey: String, callback: ParseCompletion?,
                               closeInputStream: Boolean = false, playCallback: PlayCallback? = null,
                               alias: String? = null) {
+        decodeFromInputStreamWithCancel(inputStream, cacheKey, callback, closeInputStream, playCallback, alias)
+    }
+
+    /**
+     * Starts parsing and returns a function that cancels this request. Invoke it directly in Kotlin
+     * or call its `invoke()` method in Java. Cancellation suppresses pending callbacks.
+     *
+     * With [closeInputStream] enabled, the parser closes the input exactly once on completion,
+     * cancellation or failure. A read that stalls for 20 seconds also closes it and reports an
+     * error. Supply a stream whose close wakes a blocked read, such as a socket input stream.
+     * With borrowed inputs, the caller controls timeouts and must unblock reads that ignore
+     * thread interruption.
+     */
+    @JvmOverloads
+    fun decodeFromInputStreamWithCancel(inputStream: InputStream, cacheKey: String, callback: ParseCompletion?,
+                                        closeInputStream: Boolean = false, playCallback: PlayCallback? = null,
+                                        alias: String? = null): () -> Unit {
         val size = frameSize
         val request = SVGAParseRequest(callback, alias)
-        submit(request, onFinally = { if (closeInputStream) inputStream.close() }) {
-            decodeStream(inputStream, cacheKey, request, playCallback, size)
+        val ownedInput = if (closeInputStream) OwnedInput(inputStream, ownedInputReadTimeoutMillis) else null
+        submit(request, onFinally = { ownedInput?.close() }) {
+            decodeStream(ownedInput ?: inputStream, cacheKey, request, playCallback, size,
+                    closeAfterRead = closeInputStream)
+        }
+        return request::cancel
+    }
+
+    private class OwnedInput(input: InputStream, timeoutMillis: Long) : InputStream() {
+        private companion object {
+            // A custom close() may block. Keep it off Okio's process-wide watchdog.
+            val timeoutClosers = ThreadPoolExecutor(SVGAMemoryLimits.MAX_PENDING_VIDEOS,
+                    SVGAMemoryLimits.MAX_PENDING_VIDEOS, 30, TimeUnit.SECONDS, LinkedBlockingQueue()) {
+                runnable -> Thread(runnable, "SVGAParser-InputCloser").apply { isDaemon = true }
+            }.apply { allowCoreThreadTimeOut(true) }
+        }
+
+        private val source = AtomicReference<InputStream?>(input)
+        private val closeOnTimeout = Runnable {
+            try { close() } catch (error: Exception) {
+                LogUtils.error(TAG, "Unable to close stalled SVGA input", error)
+            }
+        }
+        private val readTimeout = object : AsyncTimeout() {
+            override fun timedOut() {
+                timeoutClosers.execute(closeOnTimeout)
+                if (source.get() == null) timeoutClosers.remove(closeOnTimeout)
+            }
+        }.apply { timeout(timeoutMillis, TimeUnit.MILLISECONDS) }
+
+        private fun source(): InputStream = source.get() ?: throw IOException("SVGA input closed")
+
+        override fun read(): Int = readTimeout.withTimeout { source().read() }
+
+        override fun read(buffer: ByteArray, offset: Int, length: Int): Int =
+                readTimeout.withTimeout { source().read(buffer, offset, length) }
+
+        override fun close() {
+            val input = source.getAndSet(null) ?: return
+            timeoutClosers.remove(closeOnTimeout)
+            input.close()
         }
     }
 
     private fun submit(request: SVGAParseRequest, onFinally: () -> Unit = {}, block: () -> Unit) {
         try {
-            val future = threadPoolExecutor.submit { runRequest(request, onFinally, block) }
-            request.setTask(future)
+            val executor = threadPoolExecutor
+            val future = executor.submit { runRequest(request, onFinally, block) }
+            request.setSourceCancellation {
+                future.cancel(true)
+                if (future is Runnable) executor.remove(future)
+                try { onFinally() } catch (error: Exception) {
+                    LogUtils.error(TAG, "Unable to close cancelled SVGA input", error)
+                }
+            }
         } catch (error: Exception) {
             try { onFinally() } catch (closeError: Exception) { error.addSuppressed(closeError) }
             request.fail(error)
@@ -202,9 +274,11 @@ class SVGAParser(context: Context?) {
     }
 
     private fun decodeStream(input: InputStream, key: String, request: SVGAParseRequest,
-                             playCallback: PlayCallback?, size: Pair<Int, Int>) {
+                             playCallback: PlayCallback?, size: Pair<Int, Int>, closeAfterRead: Boolean = false) {
         if (mContext == null) throw IOException("SVGAParser context is not initialized")
         val bytes = SVGAIO.readBytes(input, SVGAMemoryLimits.inputBytes)
+        // Finish owned I/O before preparing or posting the video, including any close failure.
+        if (closeAfterRead) input.close()
         if (bytes.size >= 4 && bytes[0] == 80.toByte() && bytes[1] == 75.toByte() &&
                 bytes[2] == 3.toByte() && bytes[3] == 4.toByte()) {
             synchronized(fileLock) {

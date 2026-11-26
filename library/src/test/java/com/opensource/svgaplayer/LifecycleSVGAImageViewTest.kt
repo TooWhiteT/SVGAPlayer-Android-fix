@@ -23,6 +23,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.Implementation
@@ -33,6 +34,8 @@ import org.robolectric.shadows.ShadowSoundPool
 import org.robolectric.util.ReflectionHelpers
 import org.robolectric.util.ReflectionHelpers.ClassParameter
 import java.io.File
+import java.lang.ref.ReferenceQueue
+import java.lang.ref.WeakReference
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.ThreadPoolExecutor
@@ -220,6 +223,50 @@ class LifecycleSVGAImageViewTest {
         } finally { view.clear(); controller.pause().stop().destroy() }
     }
 
+    @Test fun preloadedViewsCanBeClearedAndReboundBeforeFirstAttach() {
+        val controller = Robolectric.buildActivity(OwnerActivity::class.java).setup()
+        val activity = controller.get()
+        activity.registry.currentState = Lifecycle.State.STARTED
+        try {
+            val views = List(5) { LifecycleSVGAImageView(activity) }
+            assertEquals(0, activity.registry.observerCount)
+            val videos = views.map { view -> video().also { view.setVideoItem(it) } }
+            assertEquals(1, activity.registry.observerCount)
+            views.forEach { it.clear() }
+            assertTrue(videos.all { it.isCleared })
+            assertEquals(0, activity.registry.observerCount)
+
+            val reloaded = video()
+            views.first().setVideoItem(reloaded)
+            activity.registry.currentState = Lifecycle.State.DESTROYED
+            assertTrue(reloaded.isCleared)
+            assertNull(views.first().drawable)
+            assertEquals(0, activity.registry.observerCount)
+        } finally { controller.pause().stop().destroy() }
+    }
+
+    @Test fun ownerDoesNotKeepAnAbandonedPreloadedViewAlive() {
+        val owner = Owner()
+        val collected = ReferenceQueue<LifecycleSVGAImageView>()
+        fun preload(): WeakReference<LifecycleSVGAImageView> {
+            val attrs = Robolectric.buildAttributeSet().addAttribute(R.attr.autoPlay, "false").build()
+            val view = LifecycleSVGAImageView(RuntimeEnvironment.getApplication(), attrs)
+            view.lifecycleOwner = owner
+            view.setVideoItem(video())
+            return WeakReference(view, collected)
+        }
+
+        val reference = preload()
+        assertEquals(1, owner.registry.observerCount)
+        for (attempt in 1..20) {
+            System.gc()
+            if (collected.remove(100) === reference) break
+        }
+        assertNull(reference.get())
+        owner.registry.currentState = Lifecycle.State.CREATED
+        assertEquals(0, owner.registry.observerCount)
+    }
+
     @Test fun autoPlayFalseRequiresExplicitStartAndStillHonorsVisibility() {
         Fixture(autoPlay = false).use { f ->
             f.view.setVideoItem(video())
@@ -349,7 +396,43 @@ class LifecycleSVGAImageViewTest {
             f.view.setVideoItem(late)
             assertTrue(late.isCleared)
             assertNull(f.view.drawable)
+
+            f.parent.removeView(f.view)
+            f.parent.setViewTreeLifecycleOwner(null)
+            f.parent.addView(f.view)
+            val replacement = video()
+            f.view.setVideoItem(replacement)
+            assertFalse(replacement.isCleared)
+            assertTrue(f.view.isAnimating)
         }
+    }
+
+    @Test fun losingDestroyedTreeOwnerCannotDeliverLateVideoToActivityOwner() {
+        val controller = Robolectric.buildActivity(OwnerActivity::class.java).setup().visible()
+        val activity = controller.get()
+        activity.registry.currentState = Lifecycle.State.STARTED
+        val treeOwner = Owner()
+        val parent = FrameLayout(activity).apply { setViewTreeLifecycleOwner(treeOwner) }
+        val view = LifecycleSVGAImageView(activity)
+        try {
+            activity.setContentView(parent)
+            parent.addView(view)
+            view.setVideoItem(video())
+            treeOwner.registry.currentState = Lifecycle.State.DESTROYED
+            parent.setViewTreeLifecycleOwner(null)
+            val late = video()
+            view.setVideoItem(late)
+            assertTrue(late.isCleared)
+            assertNull(view.drawable)
+            assertEquals(0, activity.registry.observerCount)
+
+            parent.removeView(view)
+            parent.addView(view)
+            val replacement = video()
+            view.setVideoItem(replacement)
+            assertFalse(replacement.isCleared)
+            assertEquals(1, activity.registry.observerCount)
+        } finally { controller.pause().stop().destroy() }
     }
 
     @Test fun destructionCancelsPendingXmlAssetLoad() {
@@ -376,6 +459,34 @@ class LifecycleSVGAImageViewTest {
             executor.shutdownNow()
             executor.awaitTermination(10, TimeUnit.SECONDS)
             SVGAParser.setThreadPoolExecutor(previous)
+        }
+    }
+
+    @Test fun failedXmlPreloadReleasesObserverAndKeepsPlaceholder() {
+        val previous = SVGAParser.threadPoolExecutor
+        val executor = ThreadPoolExecutor(1, 1, 0, TimeUnit.MILLISECONDS, LinkedBlockingQueue())
+        val controller = Robolectric.buildActivity(OwnerActivity::class.java).setup()
+        val activity = controller.get()
+        activity.registry.currentState = Lifecycle.State.STARTED
+        SVGAParser.setThreadPoolExecutor(executor)
+        try {
+            val attrs = Robolectric.buildAttributeSet()
+                .addAttribute(android.R.attr.src, "@android:drawable/ic_delete")
+                .addAttribute(R.attr.source, "missing-lifecycle-preload.svga").build()
+            val view = LifecycleSVGAImageView(activity, attrs)
+            val placeholder = requireNotNull(view.drawable)
+            assertTrue(view.hasPendingLoad)
+            assertEquals(1, activity.registry.observerCount)
+            executor.submit {}.get(10, TimeUnit.SECONDS)
+            shadowOf(Looper.getMainLooper()).idle()
+            assertFalse(view.hasPendingLoad)
+            assertEquals(0, activity.registry.observerCount)
+            assertSame(placeholder, view.drawable)
+        } finally {
+            executor.shutdownNow()
+            executor.awaitTermination(10, TimeUnit.SECONDS)
+            SVGAParser.setThreadPoolExecutor(previous)
+            controller.pause().stop().destroy()
         }
     }
 

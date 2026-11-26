@@ -67,6 +67,8 @@ open class SVGAImageView @JvmOverloads constructor(
     private var cancelDownload: (() -> Unit)? = null
     private var detached = false
 
+    internal val hasPendingLoad: Boolean get() = cancelDownload != null
+
     protected val autoPlayEnabled: Boolean
         get() = mAutoPlay
 
@@ -124,7 +126,13 @@ open class SVGAImageView @JvmOverloads constructor(
                 view.getSVGADrawable()?.scaleType = view.scaleType
                 if (view.mAutoPlay && !view.isAnimating && !view.isPaused) view.startAnimation()
             }
-            override fun onError() {}
+            override fun onError() {
+                val view = ref.get() ?: return
+                if (view.requestGeneration == generation) {
+                    view.cancelDownload = null
+                    view.onSourceLoadFailed()
+                }
+            }
         }
         if (source.startsWith("http://") || source.startsWith("https://")) {
             cancelDownload = parser.decodeFromURL(URL(source), completion)
@@ -138,6 +146,8 @@ open class SVGAImageView @JvmOverloads constructor(
         cancelDownload?.invoke()
         cancelDownload = null
     }
+
+    internal open fun onSourceLoadFailed() {}
 
     fun startAnimation() {
         startAnimation(null, false)
@@ -244,11 +254,12 @@ open class SVGAImageView @JvmOverloads constructor(
         val previous = getSVGADrawable()
         if (previous !== drawable) {
             stopAnimation(false)
+            val next = drawable as? SVGADrawable
             if (previous != null) {
-                val next = drawable as? SVGADrawable
                 previous.clear(releaseVideo = previous.videoItem !== next?.videoItem,
                         releaseDynamic = previous.dynamicItem !== next?.dynamicItem)
             }
+            next?.onBoundToView()
         }
         super.setImageDrawable(drawable)
     }
@@ -392,7 +403,9 @@ open class SVGAImageView @JvmOverloads constructor(
         private val weakReference = WeakReference<SVGAImageView>(view)
 
         override fun onAnimationRepeat(animation: Animator) {
-            weakReference.get()?.callback?.onRepeat()
+            val view = weakReference.get() ?: return
+            view.getSVGADrawable()?.onAnimationRepeat()
+            view.callback?.onRepeat()
         }
 
         override fun onAnimationEnd(animation: Animator) {

@@ -12,6 +12,7 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.findViewTreeLifecycleOwner
 import com.opensource.svgaplayer.utils.SVGARange
 import java.lang.ref.WeakReference
+import java.util.WeakHashMap
 
 /**
  * Plays while attached, visible and the owner's lifecycle is at least STARTED.
@@ -38,16 +39,37 @@ open class LifecycleSVGAImageView @JvmOverloads constructor(
     private var ownerDestroyed = false
     private var explicitOwner = WeakReference<LifecycleOwner>(null)
     private var observedOwner: LifecycleOwner? = null
-    private val lifecycleObserver = LifecycleEventObserver { source, event ->
-        if (source === observedOwner) {
-            if (event == Lifecycle.Event.ON_DESTROY) {
-                ownerDestroyed = true
-                clear()
-                removeLifecycleObserver()
-            } else {
-                updatePlayback()
+    // A preloaded View can be abandoned before its first detach. Keep one observer per
+    // lifecycle and weakly track its Views so neither the Views nor observers pile up.
+    private class PlaybackObserver : LifecycleEventObserver {
+        val views = WeakHashMap<LifecycleSVGAImageView, Unit>()
+
+        override fun onStateChanged(source: LifecycleOwner, event: Lifecycle.Event) {
+            // Clear, owner switches and user callbacks can change the registrations during dispatch.
+            ArrayList(views.keys).forEach { view ->
+                if (view.observedOwner === source) {
+                    if (event == Lifecycle.Event.ON_DESTROY) {
+                        view.ownerDestroyed = true
+                        view.removeLifecycleObserver()
+                        view.clear()
+                    } else {
+                        view.updatePlayback()
+                    }
+                }
+            }
+            removeIfEmpty(source.lifecycle)
+        }
+
+        fun removeIfEmpty(lifecycle: Lifecycle) {
+            if (views.isEmpty() && observers[lifecycle] === this) {
+                observers.remove(lifecycle)
+                lifecycle.removeObserver(this)
             }
         }
+    }
+
+    private companion object {
+        val observers = WeakHashMap<Lifecycle, PlaybackObserver>()
     }
 
     /** Set a Fragment's viewLifecycleOwner explicitly when no View tree owner is available. */
@@ -103,9 +125,20 @@ open class LifecycleSVGAImageView @JvmOverloads constructor(
     override fun setImageDrawable(drawable: Drawable?) {
         val changed = this.drawable !== drawable
         super.setImageDrawable(drawable)
-        if (!initialized || !changed || drawable !is SVGADrawable) return
-        if (ownerDestroyed) clear()
-        else if (autoPlayEnabled) startAnimation()
+        if (!initialized) return
+        if (drawable !is SVGADrawable) {
+            if (!attached) removeLifecycleObserver()
+        } else if (ownerDestroyed) {
+            // A destroyed Fragment view can lose its tree owner before a late result arrives.
+            // Only reattachment or an explicit owner switch starts a new lifecycle.
+            clear()
+        } else if (changed && bindLifecycleOwner(resolveLifecycleOwner()) && autoPlayEnabled) {
+            startAnimation()
+        }
+    }
+
+    internal override fun onSourceLoadFailed() {
+        if (!attached && drawable !is SVGADrawable) removeLifecycleObserver()
     }
 
     override fun onAttachedToWindow() {
@@ -163,20 +196,34 @@ open class LifecycleSVGAImageView @JvmOverloads constructor(
         }
     }
 
-    private fun bindLifecycleOwner(owner: LifecycleOwner?) {
-        if (observedOwner === owner) return
-        removeLifecycleObserver()
-        ownerDestroyed = owner?.lifecycle?.currentState == Lifecycle.State.DESTROYED
-        if (ownerDestroyed) {
-            clear()
-            return
+    private fun bindLifecycleOwner(owner: LifecycleOwner?): Boolean {
+        if (ownerDestroyed || observedOwner !== owner) {
+            removeLifecycleObserver()
+            val lifecycle = owner?.lifecycle
+            ownerDestroyed = lifecycle?.currentState == Lifecycle.State.DESTROYED
+            if (lifecycle != null && !ownerDestroyed && (attached || drawable is SVGADrawable || hasPendingLoad)) {
+                observedOwner = owner
+                val existing = observers[lifecycle]
+                val observer = existing ?: PlaybackObserver()
+                observer.views[this] = Unit
+                if (existing == null) {
+                    observers[lifecycle] = observer
+                    lifecycle.addObserver(observer)
+                }
+            }
         }
-        observedOwner = owner
-        owner?.lifecycle?.addObserver(lifecycleObserver)
+        if (ownerDestroyed) clear()
+        return !ownerDestroyed
     }
 
     private fun removeLifecycleObserver() {
-        observedOwner?.lifecycle?.removeObserver(lifecycleObserver)
+        val lifecycle = observedOwner?.lifecycle
         observedOwner = null
+        if (lifecycle != null) {
+            observers[lifecycle]?.let { observer ->
+                observer.views.remove(this)
+                observer.removeIfEmpty(lifecycle)
+            }
+        }
     }
 }

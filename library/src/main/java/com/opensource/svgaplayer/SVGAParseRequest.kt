@@ -7,7 +7,6 @@ import com.opensource.svgaplayer.utils.SVGAMemoryLimits
 import com.opensource.svgaplayer.utils.log.LogUtils
 import java.io.IOException
 import java.io.InterruptedIOException
-import java.util.concurrent.Future
 import java.util.concurrent.Semaphore
 
 /**
@@ -25,8 +24,7 @@ internal class SVGAParseRequest(callback: SVGAParser.ParseCompletion?, private v
     private var callback = callback
     private var video: SVGAVideoEntity? = null
     private var delivery: Runnable? = null
-    private var task: Future<*>? = null
-    private var cancelDownload: (() -> Unit)? = null
+    private var cancelSource: (() -> Unit)? = null
     private var workerActive = false
     private var hasSlot = false
     private var cleaning = false
@@ -56,17 +54,9 @@ internal class SVGAParseRequest(callback: SVGAParser.ParseCompletion?, private v
         releaseSlotIfFinished()
     }
 
-    fun setTask(future: Future<*>?) {
+    fun setSourceCancellation(action: () -> Unit) {
         val cancelNow = synchronized(lock) {
-            if (!finished) task = future
-            cancelled
-        }
-        if (cancelNow) future?.cancel(true)
-    }
-
-    fun setDownloadCancellation(action: () -> Unit) {
-        val cancelNow = synchronized(lock) {
-            if (!finished) cancelDownload = action
+            if (!finished) cancelSource = action
             cancelled
         }
         if (cancelNow) action()
@@ -109,8 +99,7 @@ internal class SVGAParseRequest(callback: SVGAParser.ParseCompletion?, private v
             video = null
             callback = null
             delivery = null
-            task = null
-            cancelDownload = null
+            cancelSource = null
             result
         }
         try {
@@ -129,8 +118,7 @@ internal class SVGAParseRequest(callback: SVGAParser.ParseCompletion?, private v
             val item = video
             video = null
             callback = null
-            task = null
-            cancelDownload = null
+            cancelSource = null
             cleaning = item != null
             item
         }
@@ -146,8 +134,7 @@ internal class SVGAParseRequest(callback: SVGAParser.ParseCompletion?, private v
             video = null
             cleaning = item != null
             delivery?.let { handler.removeCallbacks(it) }
-            task = null
-            cancelDownload = null
+            cancelSource = null
             val message = Runnable {
                 val receiver = synchronized(lock) {
                     delivery = null
@@ -174,16 +161,14 @@ internal class SVGAParseRequest(callback: SVGAParser.ParseCompletion?, private v
             callback = null
             delivery?.let { handler.removeCallbacks(it) }
             delivery = null
-            val resources = Triple(video, task, cancelDownload)
+            val resources = video to cancelSource
             video = null
-            task = null
-            cancelDownload = null
+            cancelSource = null
             if (resources.first != null) cleaning = true
             resources
         }
         try {
-            resources.second?.cancel(true)
-            resources.third?.invoke()
+            resources.second?.invoke()
         } finally {
             clearVideo(resources.first)
         }

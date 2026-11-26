@@ -79,6 +79,32 @@ class SVGAImageReplacementTest {
         verifyReplacement { view, _ -> view.setImageBitmap(null) }
     }
 
+    @Test fun rebindingDrawableReacquiresSharedVideoAndDynamicResources() {
+        val view = SVGAImageView(RuntimeEnvironment.getApplication())
+        val video = SVGAVideoEntity(JSONObject("""{"movie":{"fps":20,"frames":10}}"""), File("."))
+        val bitmap = Bitmap.createBitmap(8, 8, Bitmap.Config.ARGB_8888)
+        video.imageMap["owned"] = bitmap
+        val dynamic = SVGADynamicEntity().apply { setDynamicImage(bitmap, "avatar") }
+        val first = SVGADrawable(video, dynamic)
+        val second = SVGADrawable(video, dynamic)
+
+        view.setImageDrawable(first)
+        view.setImageDrawable(second)
+        first.clear()
+        assertFalse(video.isCleared)
+        assertSame(bitmap, dynamic.dynamicImage["avatar"])
+        view.setImageDrawable(first)
+        second.clear()
+        assertFalse(video.isCleared)
+        assertSame(bitmap, dynamic.dynamicImage["avatar"])
+
+        view.clear()
+        assertTrue(video.isCleared)
+        assertTrue(video.imageMap.isEmpty())
+        assertTrue(dynamic.dynamicImage.isEmpty())
+        assertFalse(bitmap.isRecycled)
+    }
+
     @Test fun manualImageReplacementCancelsQueuedXmlAssetLoad() {
         verifyQueuedXmlAssetLoadIsCancelled { view ->
             view.setImageBitmap(Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888))
