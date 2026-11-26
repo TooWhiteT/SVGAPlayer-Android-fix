@@ -103,15 +103,15 @@ dependencyResolutionManagement {
 然后，在应用 `build.gradle` 中添加依赖。
 
 ```groovy
-implementation 'com.github.TooWhiteT:SVGAPlayer-Android-fix:v1.0.0'
+implementation 'com.github.TooWhiteT:SVGAPlayer-Android-fix:v1.0.1'
 ```
 
-[![](https://jitpack.io/v/TooWhiteT/SVGAPlayer-Android-fix.svg)](https://jitpack.io/#TooWhiteT/SVGAPlayer-Android-fix/v1.0.0)
+[![](https://jitpack.io/v/TooWhiteT/SVGAPlayer-Android-fix.svg)](https://jitpack.io/#TooWhiteT/SVGAPlayer-Android-fix/v1.0.1)
 
 仓库通过 `jitpack.yml` 使用 JDK 17，仅发布 `library` 的 release AAR、源码 JAR 和依赖元数据。版本号来自 JitPack 的标签/提交版本；本地可通过 `-PreleaseVersion` 指定：
 
 ```sh
-./gradlew :library:publishReleasePublicationToMavenLocal -PreleaseVersion=v1.0.0
+./gradlew :library:publishReleasePublicationToMavenLocal -PreleaseVersion=v1.0.1
 ```
 
 ### Parser 单例支持

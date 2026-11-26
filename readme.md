@@ -112,15 +112,15 @@ dependencyResolutionManagement {
 Then, add dependency to app `build.gradle`.
 
 ```groovy
-implementation 'com.github.TooWhiteT:SVGAPlayer-Android-fix:v1.0.0'
+implementation 'com.github.TooWhiteT:SVGAPlayer-Android-fix:v1.0.1'
 ```
 
-[![](https://jitpack.io/v/TooWhiteT/SVGAPlayer-Android-fix.svg)](https://jitpack.io/#TooWhiteT/SVGAPlayer-Android-fix/v1.0.0)
+[![](https://jitpack.io/v/TooWhiteT/SVGAPlayer-Android-fix.svg)](https://jitpack.io/#TooWhiteT/SVGAPlayer-Android-fix/v1.0.1)
 
 `jitpack.yml` selects JDK 17 and publishes only the library's release AAR, sources JAR and dependency metadata. The version comes from JitPack's tag/commit version; override it locally with `-PreleaseVersion`:
 
 ```sh
-./gradlew :library:publishReleasePublicationToMavenLocal -PreleaseVersion=v1.0.0
+./gradlew :library:publishReleasePublicationToMavenLocal -PreleaseVersion=v1.0.1
 ```
 
 ### Static Parser Support
